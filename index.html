@@ -147,6 +147,7 @@
 
       /* ---------- Layout dengan sidebar admin (desktop) ---------- */
       .layout { display: block; }
+      @media (min-width: 992px) { .layout.noside { grid-template-columns: minmax(0, 1fr); } }
       aside.sidebar { display: none; }
       @media (min-width: 992px) {
         .layout { display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 1.5rem; align-items: start; }
@@ -440,6 +441,38 @@
         position: absolute; width: 1px; height: 1px; overflow: hidden;
         clip: rect(0 0 0 0); white-space: nowrap;
       }
+      /* ---------- Gerbang peran & Super Admin ---------- */
+      .role-badge {
+        display: inline-flex; align-items: center; gap: 0.375rem;
+        border-radius: 999px; padding: 0.3rem 0.7rem;
+        font-size: 0.8125rem; font-weight: 700; white-space: nowrap;
+      }
+      .role-badge.warga { background: var(--surface2); color: var(--dim); border: 1px solid var(--border); }
+      .role-badge.petugas { background: #cff4fc; color: #055160; border: 1px solid #9eeaf9; }
+      .role-badge.bendahara { background: var(--green-bg); color: var(--green); border: 1px solid var(--border); }
+      .role-badge.superadmin { background: #212529; color: #ffc107; border: 1px solid #212529; }
+      @media (prefers-color-scheme: dark) {
+        .role-badge.petugas { background: #032830; color: #6edff6; }
+        .role-badge.superadmin { background: #ffc107; color: #212529; border-color: #ffc107; }
+      }
+      .modal-overlay {
+        position: fixed; inset: 0; z-index: 60; background: rgba(0,0,0,0.55);
+        display: flex; align-items: flex-start; justify-content: center;
+        padding: 1rem; overflow-y: auto;
+      }
+      .modal-card {
+        background: var(--surface); color: var(--text); border: 1px solid var(--border);
+        border-radius: 0.5rem; box-shadow: var(--shadow-lg);
+        width: 100%; max-width: 26rem; padding: 1.25rem; margin-top: 3rem;
+      }
+      .access-table { width: 100%; border-collapse: collapse; font-size: 0.8125rem; }
+      .access-table th, .access-table td { border: 1px solid var(--border); padding: 0.45rem 0.5rem; text-align: left; vertical-align: top; }
+      .access-table th { background: var(--surface2); font-weight: 700; }
+      .access-table td.c, .access-table th.c { text-align: center; }
+      .lock-note {
+        background: var(--surface2); border: 1px solid var(--border); border-radius: 0.5rem;
+        padding: 1rem; text-align: center;
+      }
 
     </style>
   </head>
@@ -487,8 +520,9 @@
       /* ================= State (di memori perangkat ini) ================= */
       var state = {
         tab: "beranda",
-        role: "petugas",           /* petugas | bendahara | warga */
+        role: "warga",             /* warga (publik, hanya lihat) | petugas | bendahara | superadmin — peran pengurus terkunci PIN */
         nama: "",
+        pins: { petugas: "", bendahara: "", superadmin: "" }, /* Kosong di file yang dibagikan — PIN dibuat pemilik saat penyiapan pertama, tidak pernah tertulis di kode */
         settings: { namaRt: "RT Kami", wilayah: "", nominalBaku: 500, nominalIuran: 20000 },
         houses: [],                /* {id, nomor, namaPenghuni, blok, status, catatan} */
         collections: [],           /* {id, houseId, tanggal, total, jimpitan, kelebihan, petugas, status, diverifikasiOleh, alasanBatal} */
@@ -529,7 +563,10 @@
         adNama: "", adIsi: "",
         agJudul: "", agTgl: todayStr(), agLokasi: "", agKet: "",
         umJudul: "", umIsi: "",
-        ukNama: "", ukPemilik: "", ukKategori: "", ukKontak: "", ukDesk: ""
+        ukNama: "", ukPemilik: "", ukKategori: "", ukKontak: "", ukDesk: "",
+        loginOpen: false, loginRole: "petugas", loginPin: "", loginNama: "", loginError: "",
+        setupNama: "", setupSuper: "", setupBendahara: "", setupPetugas: "", setupError: "",
+        pinPetugas: null, pinBendahara: null, pinSuper: null, pinError: "", pinDone: false
       };
 
       function nextId() { return state.seq++; }
@@ -610,7 +647,20 @@
       }
 
       /* ================= Komponen kecil ================= */
-      var ROLE_LABEL = { petugas: "Petugas", bendahara: "Bendahara", warga: "Warga" };
+      var ROLE_LABEL = { warga: "Warga", petugas: "Petugas", bendahara: "Bendahara", superadmin: "Super Admin" };
+      /* ===== Gerbang peran: warga = publik hanya-lihat. Peran pengurus hanya aktif setelah PIN benar. ===== */
+      function isSuper() { return state.role === "superadmin"; }
+      function isBendahara() { return state.role === "bendahara" || state.role === "superadmin"; }
+      function isPengurus() { return state.role === "petugas" || state.role === "bendahara" || state.role === "superadmin"; }
+      function canCatat() { return isPengurus(); }              /* catat/ubah/batal setoran jimpitan */
+      function canKelola() { return isBendahara(); }            /* verifikasi, kas keluar, rumah, modul RT/RW */
+      function canTab(tab) {
+        if (state.role === "warga") return tab === "beranda" || tab === "kas" || tab === "rtrw" || tab === "laporan";
+        if (state.role === "petugas") return tab !== "deploy" && tab !== "admin";
+        if (state.role === "bendahara") return tab !== "deploy" && tab !== "admin";
+        return true; /* superadmin: semua tab */
+      }
+      function visibleTabs() { return TABS.filter(function (t) { return canTab(t.id); }); }
       var TABS = [
         { id: "beranda", label: "Beranda", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></svg>' },
         { id: "keliling", label: "Keliling", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>' },
@@ -618,7 +668,8 @@
         { id: "kas", label: "Kas", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/><path d="M6 12h.01M18 12h.01"/></svg>' },
         { id: "laporan", label: "Laporan", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10"/></svg>' },
         { id: "rtrw", label: "RT/RW", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 21h18"/><path d="M5 21V7l7-4 7 4v14"/><path d="M9 21v-6h6v6"/></svg>' },
-        { id: "deploy", label: "Deploy", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg>' }
+        { id: "deploy", label: "Deploy", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg>' },
+        { id: "admin", label: "Super Admin", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-3.6 8-10V5l-8-3-8 3v7c0 6.4 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>' }
       ];
       function badge(tone, text) {
         return '<span class="badge badge-' + tone + '">' + esc(text) + "</span>";
@@ -645,8 +696,9 @@
         { tab: "rtrw", sec: "agenda", label: "Agenda", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>' },
         { tab: "rtrw", sec: "umkm", label: "UMKM", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 9l1.5-5h15L21 9"/><path d="M3 9h18v11H3z"/><path d="M9 20v-6h6v6"/></svg>' },
         { tab: "laporan", label: "Laporan", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3v18h18"/><path d="M7 15v3M12 10v8M17 6v12"/></svg>' },
-        { tab: "rumah", label: "Pengaturan", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>' },
-        { tab: "deploy", label: "Deploy Vercel", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg>' }
+        { tab: "admin", label: "Pengaturan", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>', superOnly: true },
+        { tab: "deploy", label: "Deploy Vercel", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg>', superOnly: true },
+        { tab: "admin", label: "Super Admin", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-3.6 8-10V5l-8-3-8 3v7c0 6.4 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>', superOnly: true }
       ];
       function sideActive(it) {
         if (it.tab !== state.tab) return false;
@@ -658,43 +710,55 @@
       function render() {
         var s = state.settings;
         var pc = pendingCount();
+        if (!canTab(state.tab)) state.tab = "beranda";
+        var tabs = visibleTabs();
         var roleNote = state.role === "petugas"
-          ? "Peran Petugas: mencatat setoran jimpitan saat keliling. Modul RT/RW bersifat lihat saja — pengelolaan oleh bendahara."
+          ? "Anda masuk sebagai Petugas: hanya mencatat setoran jimpitan saat keliling. Verifikasi, kas keluar, data rumah, dan modul RT/RW tidak bisa diubah dari peran ini."
           : state.role === "bendahara"
-            ? "Peran Bendahara (pengelola): memverifikasi setoran, mencatat pengeluaran, dan mengelola seluruh modul RT/RW (warga, iuran, aset, surat, pengaduan, agenda, pengumuman, UMKM)."
-            : "Peran Warga: melihat transparansi kas, pengumuman, agenda, dan UMKM — serta mengajukan surat dan pengaduan. Tidak bisa mengubah data lain.";
+            ? "Anda masuk sebagai Bendahara: memverifikasi setoran, mencatat pengeluaran, mengelola data rumah dan seluruh modul RT/RW. Pengaturan sistem, PIN, cadangan, dan deploy khusus Super Admin."
+            : state.role === "superadmin"
+              ? "Anda masuk sebagai Super Admin: mengelola SELURUH sistem — semua data, pengaturan RT, PIN semua peran, audit log, cadangan data, dan deploy. Gunakan tombol Keluar setelah selesai."
+              : "Mode Warga (publik): siapa pun yang membuka tautan ini hanya bisa MELIHAT transparansi kas, pengumuman, agenda, dan UMKM — plus mengajukan surat & pengaduan atas namanya sendiri. Semua tombol ubah/hapus/verifikasi disembunyikan dan terkunci. Pengurus masuk dengan PIN lewat tombol di kanan atas.";
         var html = "";
         html += '<header class="top"><div class="wrap">';
         html += '<div class="top-row"><div class="brand"><span class="brand-mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 21h18"/><path d="M5 21V7l7-4 7 4v14"/><path d="M9 21v-6h6v6"/></svg></span><div>';
         html += '<p class="app-name">SI-RT/RW Digital · ' + esc(s.namaRt) + ' <span class="badge badge-amber">Versi Vercel</span></p>';
         html += '<p class="app-sub">' + (s.wilayah ? esc(s.wilayah) + " · " : "") +
           "Jimpitan " + rp(s.nominalBaku) + " per rumah per hari · Iuran " + rp(s.nominalIuran || 20000) + " per KK per bulan</p>";
-        html += '</div></div><div class="role-group" role="group" aria-label="Pilih peran">';
-        ["petugas", "bendahara", "warga"].forEach(function (r) {
-          html += '<button type="button" data-act="role" data-role="' + r + '" aria-pressed="' +
-            (state.role === r) + '">' + ROLE_LABEL[r] + "</button>";
-        });
+        html += '</div></div><div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap">';
+        html += '<span class="role-badge ' + state.role + '">' + esc(ROLE_LABEL[state.role]) +
+          (isPengurus() && state.nama.trim() ? " · " + esc(state.nama.trim()) : "") + "</span>";
+        if (state.role === "warga") {
+          html += '<button type="button" class="btn btn-primary" data-act="login-open">Masuk sebagai Pengurus</button>';
+        } else {
+          html += '<button type="button" class="btn btn-ghost" data-act="logout">Keluar → mode Warga</button>';
+        }
         html += "</div></div>";
         html += '<p class="role-note">' + roleNote + "</p>";
         html += '<nav class="tabs-desktop" aria-label="Menu utama">';
-        TABS.forEach(function (t) {
+        tabs.forEach(function (t) {
           html += '<button type="button" data-act="tab" data-tab="' + t.id + '"' +
             (state.tab === t.id ? ' aria-current="page"' : "") + ">" + t.label +
             (t.id === "keliling" && pc > 0 ? '<span class="pill-count num">' + pc + "</span>" : "") +
             "</button>";
         });
         html += "</nav></div></header>";
-        html += '<main><div class="wrap"><div class="layout">';
-        html += '<aside class="sidebar" aria-label="Menu admin"><p class="side-title">Menu Admin</p>';
-        SIDE.forEach(function (it, i) {
-          if (i === 11) html += "<hr>";
-          html += '<button type="button" data-act="side" data-tab="' + it.tab + '"' +
-            (it.sec ? ' data-sec="' + it.sec + '"' : "") +
-            (sideActive(it) ? ' aria-current="page"' : "") + ">" + it.icon + "<span>" + it.label + "</span>" +
-            (it.tab === "keliling" && pc > 0 ? '<span class="pill-count num">' + pc + "</span>" : "") +
-            "</button>";
-        });
-        html += "</aside><div>";
+        html += '<main><div class="wrap"><div class="layout' + (isPengurus() ? "" : " noside") + '">';
+        if (isPengurus()) {
+          html += '<aside class="sidebar" aria-label="Menu admin"><p class="side-title">Menu ' + esc(ROLE_LABEL[state.role]) + "</p>";
+          SIDE.forEach(function (it, i) {
+            if (it.superOnly && !isSuper()) return;
+            if (!canTab(it.tab)) return;
+            if (i === 11) html += "<hr>";
+            html += '<button type="button" data-act="side" data-tab="' + it.tab + '"' +
+              (it.sec ? ' data-sec="' + it.sec + '"' : "") +
+              (sideActive(it) ? ' aria-current="page"' : "") + ">" + it.icon + "<span>" + it.label + "</span>" +
+              (it.tab === "keliling" && pc > 0 ? '<span class="pill-count num">' + pc + "</span>" : "") +
+              "</button>";
+          });
+          html += "</aside>";
+        }
+        html += "<div>";
         if (state.tab === "beranda") html += viewBeranda();
         else if (state.tab === "keliling") html += viewKeliling();
         else if (state.tab === "rumah") html += viewRumah();
@@ -702,9 +766,11 @@
         else if (state.tab === "laporan") html += viewLaporan();
         else if (state.tab === "rtrw") html += viewRTRW();
         else if (state.tab === "deploy") html += viewDeploy();
+        else if (state.tab === "admin") html += viewAdmin();
         html += "</div></div></div></main>";
-        html += '<nav class="tabs-mobile" aria-label="Menu utama"><div class="grid">';
-        TABS.forEach(function (t) {
+        if (ui.loginOpen) html += viewLogin();
+        html += '<nav class="tabs-mobile" aria-label="Menu utama"><div class="grid" style="grid-template-columns:repeat(' + tabs.length + ',1fr)">';
+        tabs.forEach(function (t) {
           html += '<button type="button" data-act="tab" data-tab="' + t.id + '"' +
             (state.tab === t.id ? ' aria-current="page"' : "") + ">" + t.icon + "<span>" + t.label + "</span>" +
             (t.id === "keliling" && pc > 0 ? '<span class="pill-count num">' + pc + "</span>" : "") +
@@ -794,19 +860,23 @@
           '<div class="cta">';
         if (state.role !== "warga") {
           html += '<button type="button" class="btn btn-light" data-act="tab" data-tab="keliling">Mulai Keliling Jimpitan</button>';
+        } else {
+          html += '<button type="button" class="btn btn-light" data-act="login-open">Masuk Pengurus (PIN)</button>';
         }
         html += '<button type="button" class="btn btn-outline-light" data-act="tab" data-tab="kas">Lihat Transparansi Kas</button>' +
           "</div></section>";
 
         if (state.houses.length === 0) {
           html += '<div class="notice-amber"><p style="margin:0;font-size:.875rem;font-weight:600">Data rumah masih kosong</p>' +
-            '<p class="sub">Tambahkan dulu rumah-rumah di RT ini supaya petugas bisa mulai mencatat jimpitan harian.</p>';
-          if (state.role !== "warga") {
+            '<p class="sub">' + (canKelola()
+              ? "Tambahkan dulu rumah-rumah di RT ini supaya petugas bisa mulai mencatat jimpitan harian."
+              : "Data rumah belum diisi pengurus. Warga hanya bisa melihat halaman publik ini.") + "</p>";
+          if (canKelola()) {
             html += '<button type="button" class="btn btn-primary" style="margin-top:.75rem" data-act="tab" data-tab="rumah">Tambah rumah pertama</button>';
           }
           html += "</div>";
         }
-        if (d.menunggu > 0) {
+        if (d.menunggu > 0 && isBendahara()) {
           html += '<button type="button" class="banner-btn" data-act="tab" data-tab="keliling"><span>' +
             d.menunggu + ' setoran menunggu verifikasi bendahara</span><span class="go">Lihat →</span></button>';
         }
@@ -852,9 +922,15 @@
         ];
         html += "<section>" + secHead(IC.kas, "Layanan Cepat") + '<div class="layanan">';
         layanan.forEach(function (l) {
-          html += '<button type="button" data-act="side" data-tab="' + l.tab + '"' +
-            (l.sec ? ' data-sec="' + l.sec + '"' : "") + '><span class="ic">' + l.icon + "</span><span>" +
-            esc(l.t) + '</span><span class="d">' + esc(l.d) + "</span></button>";
+          var ll = l;
+          if (state.role === "warga" && l.tab === "keliling") {
+            ll = { icon: l.icon, t: "Pantau Jimpitan & Kas", d: "Lihat setoran harian dan saldo kas — pencatatan khusus pengurus ber-PIN", tab: "kas" };
+          } else if (state.role === "warga" && l.sec === "iuran") {
+            ll = { icon: l.icon, t: "Laporan Bulanan", d: "Rekap jimpitan & kas per bulan, terbuka untuk warga", tab: "laporan" };
+          }
+          html += '<button type="button" data-act="side" data-tab="' + ll.tab + '"' +
+            (ll.sec ? ' data-sec="' + ll.sec + '"' : "") + '><span class="ic">' + ll.icon + "</span><span>" +
+            esc(ll.t) + '</span><span class="d">' + esc(ll.d) + "</span></button>";
         });
         html += "</div></section>";
 
@@ -942,8 +1018,13 @@
       }
 
       function viewKeliling() {
-        var canWrite = state.role !== "warga";
-        var isBendahara = state.role === "bendahara";
+        if (state.role === "warga") {
+          return '<div class="lock-note"><h2 class="sec">Halaman khusus pengurus</h2>' +
+            '<p class="sub">Pencatatan keliling hanya untuk Petugas, Bendahara, dan Super Admin yang sudah masuk dengan PIN. Sebagai warga, Anda bisa memantau hasilnya di Beranda dan tab Kas.</p>' +
+            '<div class="actions-row" style="justify-content:center"><button type="button" class="btn btn-primary" data-act="login-open">Masuk sebagai Pengurus</button></div></div>';
+        }
+        var canWrite = canCatat();
+        var bendaharaPlus = isBendahara();
         var sheet = daySheet(ui.tanggal);
         var html = '<div class="stack">';
         html += '<div><h2 class="sec">Keliling &amp; pencatatan harian</h2>' +
@@ -955,7 +1036,7 @@
           '<button type="button" class="btn btn-ghost" data-act="shift-date" data-days="1" aria-label="Hari berikutnya">›</button></div>' +
           '<p class="hint">' + esc(fmtTanggal(ui.tanggal)) + "</p></div>";
         if (canWrite) {
-          html += '<div><label class="lbl" for="nama-petugas">' + (isBendahara ? "Nama bendahara" : "Nama petugas keliling") + "</label>" +
+          html += '<div><label class="lbl" for="nama-petugas">' + "Nama " + ROLE_LABEL[state.role].toLowerCase() + " yang bertugas</label>" +
             '<input id="nama-petugas" type="text" class="inp" placeholder="mis. Pak Budi" value="' + esc(state.nama) + '" data-bind="nama">' +
             (ui.namaError ? '<p class="field-err">' + esc(ui.namaError) + "</p>" : "") + "</div>";
         }
@@ -964,7 +1045,7 @@
         html += '<div class="badges-row">' + badge("green", "Terkumpul " + rp(sheet.summary.totalTerkumpul)) +
           badge("gray", sheet.summary.sudahSetor + " rumah sudah setor") +
           (sheet.summary.totalKelebihan > 0 ? badge("amber", "Kelebihan " + rp(sheet.summary.totalKelebihan)) : "") +
-          (isBendahara && sheet.summary.menungguVerifikasi > 0
+          (bendaharaPlus && sheet.summary.menungguVerifikasi > 0
             ? '<button type="button" class="btn btn-primary" data-act="verify-all">Verifikasi semua (' + sheet.summary.menungguVerifikasi + ")</button>" : "") +
           "</div>";
         if (sheet.rows.length === 0) {
@@ -993,7 +1074,7 @@
               '<span style="font-size:.75rem;color:var(--dim)">petugas ' + esc(c.petugas) + "</span></div>";
             if (canWrite) {
               html += '<div class="actions-row">';
-              if (isBendahara && c.status === "menunggu") {
+              if (bendaharaPlus && c.status === "menunggu") {
                 html += '<button type="button" class="btn btn-primary" data-act="verify" data-id="' + c.id + '">Verifikasi</button>';
               }
               html += '<button type="button" class="btn btn-ghost" data-act="custom-open" data-house="' + h.id + '" data-val="' + c.total + '">Ubah nominal</button>' +
@@ -1034,7 +1115,7 @@
 
       /* ================= Rumah + Pengaturan ================= */
       function viewRumah() {
-        var canWrite = state.role !== "warga";
+        var canWrite = canKelola();
         var s = state.settings;
         var q = ui.cari.trim().toLowerCase();
         var filtered = sortedHouses().filter(function (h) {
@@ -1096,7 +1177,14 @@
             "</div></div>";
         });
         html += "</div>";
-        if (state.role === "bendahara") html += viewPengaturan();
+        if (!canWrite) {
+          html += '<p class="sub">Mode lihat saja untuk peran ' + esc(ROLE_LABEL[state.role]) + " — tambah/ubah data rumah hanya oleh Bendahara dan Super Admin.</p>";
+        }
+        if (isSuper()) {
+          html += '<div class="card"><h2 class="sec">Pengaturan RT ada di Super Admin</h2>' +
+            '<p class="sub">Nama RT, nominal jimpitan &amp; iuran, PIN peran, dan audit log kini terpusat di tab Super Admin.</p>' +
+            '<div class="actions-row"><button type="button" class="btn btn-primary" data-act="tab" data-tab="admin">Buka Super Admin</button></div></div>';
+        }
         html += "</div>";
         return html;
       }
@@ -1125,7 +1213,7 @@
       /* ================= Kas ================= */
       function viewKas() {
         var d = dashboard();
-        var isBendahara = state.role === "bendahara";
+        var bendaharaPlus = isBendahara();
         var kel = activeCols().filter(function (c) { return c.kelebihan > 0; })
           .sort(function (a, b) { return b.tanggal === a.tanggal ? b.id - a.id : (b.tanggal < a.tanggal ? -1 : 1); })
           .slice(0, 50);
@@ -1150,7 +1238,7 @@
         });
         html += "</div></section>";
         html += "<section><h2 class=\"sec\">Pengeluaran kas</h2>";
-        if (isBendahara) {
+        if (bendaharaPlus) {
           html += '<form class="card" data-form="expense" style="margin-top:.75rem"><p style="margin:0 0 .75rem;font-weight:700">Catat pengeluaran baru</p>' +
             '<div class="grid2">' +
             '<div><label class="lbl" for="e-tgl">Tanggal</label>' +
@@ -1175,9 +1263,9 @@
             (e.keterangan ? " · " + esc(e.keterangan) : "") + "</p>" +
             (batal ? '<p style="margin:0;font-size:.75rem;font-weight:600;color:var(--danger)">Dibatalkan: ' + esc(e.alasanBatal || "-") + "</p>" : "") +
             '</div><div style="text-align:right"><p class="amt num" style="color:var(--danger)">−' + rp(e.jumlah) + "</p>" +
-            (isBendahara && !batal ? '<button type="button" class="link-danger" data-act="exp-void-open" data-id="' + e.id + '">Batalkan</button>' : "") +
+            (bendaharaPlus && !batal ? '<button type="button" class="link-danger" data-act="exp-void-open" data-id="' + e.id + '">Batalkan</button>' : "") +
             "</div></div>";
-          if (isBendahara && ui.voidExpFor === e.id) {
+          if (bendaharaPlus && ui.voidExpFor === e.id) {
             html += '<form class="inline-form" data-form="exp-void" data-id="' + e.id + '">' +
               '<label class="lbl" for="batal-exp-' + e.id + '">Alasan membatalkan pengeluaran ini</label>' +
               '<input id="batal-exp-' + e.id + '" type="text" class="inp" value="' + esc(ui.voidExpReason) + '" data-bind="voidExpReason">' +
@@ -1228,7 +1316,8 @@
           '<h2 class="sec">Laporan bulanan</h2><p class="sub">Rekap per rumah untuk dibagikan ke warga atau ditempel di papan RT.</p></div>' +
           '<div style="display:flex;align-items:flex-end;gap:.5rem"><div><label class="lbl" for="bulan-laporan">Bulan</label>' +
           '<input id="bulan-laporan" type="month" class="inp" value="' + ui.bulan + '" data-bind="bulan"></div>' +
-          '<button type="button" class="btn btn-primary" data-act="unduh-csv">Unduh CSV</button></div></div>';
+          (isPengurus() ? '<button type="button" class="btn btn-primary" data-act="unduh-csv">Unduh CSV</button>' : "") + "</div></div>" +
+          (state.role === "warga" ? '<p class="sub">Laporan ini terbuka untuk warga sebagai transparansi — pengunduhan CSV khusus pengurus.</p>' : "");
         html += '<p style="margin:0;font-size:1.125rem;font-weight:800">' + esc(fmtBulan(ui.bulan)) + "</p>";
         html += '<div class="stats">' +
           statCard("Setoran masuk", rp(r.ringkasan.totalMasuk)) +
@@ -1291,7 +1380,7 @@
       }
 
       function viewRTRW() {
-        var manage = state.role === "bendahara";
+        var manage = isBendahara();
         var secs = rtSecsForRole();
         if (!secs.some(function (s) { return s.id === ui.rtSec; })) ui.rtSec = secs[0].id;
         var html = '<div class="stack">';
@@ -1307,8 +1396,8 @@
         if (ui.rtDone) html += '<p class="ok-note">' + esc(ui.rtDone) + "</p>";
         if (!manage && ui.rtSec !== "surat" && ui.rtSec !== "aduan") {
           html += '<p class="sub">' + (state.role === "warga"
-            ? "Mode lihat untuk warga — pengajuan surat & pengaduan bisa lewat subtab Surat / Pengaduan."
-            : "Mode lihat untuk petugas — pengelolaan modul ini oleh bendahara.") + "</p>";
+            ? "Mode lihat untuk warga — tidak ada tombol ubah/hapus di peran ini. Pengajuan surat & pengaduan bisa lewat subtab Surat / Pengaduan."
+            : "Mode lihat untuk petugas — pengelolaan modul ini hanya oleh Bendahara dan Super Admin.") + "</p>";
         }
 
         /* ---- Warga & KK ---- */
@@ -1530,6 +1619,106 @@
         return html;
       }
 
+      /* ================= Masuk pengurus (gerbang PIN) ================= */
+      function viewLogin() {
+        if (!state.pins.superadmin) {
+          return '<div class="modal-overlay"><form class="modal-card" data-form="setup">' +
+            '<h2 class="sec" style="font-size:1.125rem">Penyiapan pertama — buat PIN pengurus</h2>' +
+            '<p class="sub">File aplikasi ini sengaja dibagikan <b>tanpa PIN bawaan apa pun</b>, supaya tidak ada kredensial yang bisa dibaca dari kode. Pemilik sistem (Super Admin) membuat PIN-nya sendiri di sini, sekali saja di perangkat ini. Catat dan berikan tiap PIN hanya kepada pemegang perannya.</p>' +
+            '<div style="margin-top:1rem"><label class="lbl" for="setup-nama">Nama Super Admin</label>' +
+            '<input id="setup-nama" type="text" class="inp" placeholder="mis. Pak Dariyo" value="' + esc(ui.setupNama) + '" data-bind="setupNama"></div>' +
+            '<div style="margin-top:.75rem"><label class="lbl" for="setup-super">PIN Super Admin (4–6 angka)</label>' +
+            '<input id="setup-super" type="password" inputmode="numeric" autocomplete="off" class="inp" placeholder="buat PIN Super Admin" value="' + esc(ui.setupSuper) + '" data-bind="setupSuper"></div>' +
+            '<div style="margin-top:.75rem"><label class="lbl" for="setup-bendahara">PIN Bendahara (4–6 angka)</label>' +
+            '<input id="setup-bendahara" type="password" inputmode="numeric" autocomplete="off" class="inp" placeholder="buat PIN Bendahara" value="' + esc(ui.setupBendahara) + '" data-bind="setupBendahara"></div>' +
+            '<div style="margin-top:.75rem"><label class="lbl" for="setup-petugas">PIN Petugas (4–6 angka)</label>' +
+            '<input id="setup-petugas" type="password" inputmode="numeric" autocomplete="off" class="inp" placeholder="buat PIN Petugas" value="' + esc(ui.setupPetugas) + '" data-bind="setupPetugas"></div>' +
+            (ui.setupError ? '<p class="field-err">' + esc(ui.setupError) + "</p>" : "") +
+            '<div class="actions-row"><button type="submit" class="btn btn-primary">Simpan PIN &amp; masuk sebagai Super Admin</button>' +
+            '<button type="button" class="btn btn-ghost" data-act="login-close">Batal</button></div>' +
+            '<p class="hint" style="margin-top:.75rem">PIN tersimpan hanya di perangkat ini dan ikut ter-ekspor di file cadangan JSON (cadangan versi 3). Karena versi ini statis tanpa server, perlindungan ini mencegah warga biasa mengubah data dari tautan publik; keamanan penuh antarperangkat membutuhkan versi server.</p>' +
+            "</form></div>";
+        }
+        var html = '<div class="modal-overlay"><form class="modal-card" data-form="login">' +
+          '<h2 class="sec" style="font-size:1.125rem">Masuk sebagai Pengurus</h2>' +
+          '<p class="sub">Tautan publik ini terbuka untuk warga dalam mode hanya-lihat. Untuk mencatat atau mengubah data, masuk dengan peran dan PIN Anda. PIN dibuat oleh Super Admin saat penyiapan pertama dan hanya diketahui pengurus yang bersangkutan.</p>' +
+          '<div style="margin-top:1rem"><label class="lbl" for="login-role">Peran</label>' +
+          '<select id="login-role" class="inp" data-bind-sel="loginRole">' +
+          ["petugas", "bendahara", "superadmin"].map(function (r) {
+            return '<option value="' + r + '"' + (ui.loginRole === r ? " selected" : "") + ">" + ROLE_LABEL[r] + "</option>";
+          }).join("") + "</select></div>" +
+          '<div style="margin-top:.75rem"><label class="lbl" for="login-nama">Nama Anda</label>' +
+          '<input id="login-nama" type="text" class="inp" placeholder="mis. Pak Budi" value="' + esc(ui.loginNama) + '" data-bind="loginNama"></div>' +
+          '<div style="margin-top:.75rem"><label class="lbl" for="login-pin">PIN peran</label>' +
+          '<input id="login-pin" type="password" inputmode="numeric" autocomplete="off" class="inp" placeholder="PIN angka" value="' + esc(ui.loginPin) + '" data-bind="loginPin"></div>' +
+          (ui.loginError ? '<p class="field-err">' + esc(ui.loginError) + "</p>" : "") +
+          '<div class="actions-row"><button type="submit" class="btn btn-primary">Masuk</button>' +
+          '<button type="button" class="btn btn-ghost" data-act="login-close">Batal — tetap sebagai Warga</button></div>' +
+          '<p class="hint" style="margin-top:.75rem">Lupa PIN? Super Admin bisa mengganti PIN semua peran di tab Super Admin. Karena versi ini statis tanpa server, PIN tersimpan di perangkat ini — perlindungan ini mencegah warga biasa mengubah data dari tautan publik; untuk keamanan penuh antarperangkat gunakan versi server.</p>' +
+          "</form></div>";
+        return html;
+      }
+
+      /* ================= Super Admin ================= */
+      function viewAdmin() {
+        if (!isSuper()) {
+          return '<div class="lock-note"><h2 class="sec">Khusus Super Admin</h2>' +
+            '<p class="sub">Halaman ini mengelola seluruh sistem dan hanya terbuka untuk peran Super Admin.</p></div>';
+        }
+        var d = dashboard();
+        var html = '<div class="stack-lg">';
+        html += "<section><h2 class=\"sec\">Super Admin — Kendali Penuh Sistem</h2>" +
+          '<p class="sub">Super Admin mengelola semua yang bisa dilakukan Petugas dan Bendahara, ditambah pengaturan RT, PIN semua peran, audit log, cadangan data, dan deploy. Hak akses tiap peran:</p>' +
+          '<div class="card" style="margin-top:.75rem;overflow-x:auto"><table class="access-table"><thead><tr>' +
+          "<th>Kemampuan</th><th class=\"c\">Warga</th><th class=\"c\">Petugas</th><th class=\"c\">Bendahara</th><th class=\"c\">Super Admin</th></tr></thead><tbody>" +
+          [
+            ["Melihat beranda, transparansi kas, pengumuman, agenda, UMKM", "✓", "✓", "✓", "✓"],
+            ["Mengajukan surat & pengaduan atas nama sendiri", "✓", "✓", "✓", "✓"],
+            ["Mencatat / mengubah / membatalkan setoran jimpitan", "—", "✓", "✓", "✓"],
+            ["Verifikasi setoran", "—", "—", "✓", "✓"],
+            ["Data rumah, pengeluaran kas, ceklis iuran, modul RT/RW", "—", "—", "✓", "✓"],
+            ["Pengaturan RT, ganti PIN semua peran, audit log", "—", "—", "—", "✓"],
+            ["Impor cadangan (menimpa data) & deploy", "—", "—", "—", "✓"]
+          ].map(function (r) {
+            return "<tr><td>" + r[0] + '</td><td class="c">' + r[1] + '</td><td class="c">' + r[2] + '</td><td class="c">' + r[3] + '</td><td class="c">' + r[4] + "</td></tr>";
+          }).join("") +
+          "</tbody></table></div></section>";
+        html += '<section><div class="stats">' +
+          statCard("Total rumah", String(state.houses.length)) +
+          statCard("Catatan setoran", String(state.collections.length)) +
+          statCard("Menunggu verifikasi", String(d.menunggu), d.menunggu > 0) +
+          statCard("Saldo kas", rp(d.saldo)) +
+          "</div></section>";
+        html += viewPengaturan();
+        /* Ganti PIN */
+        html += '<form class="card" data-form="pins"><h2 class="sec">PIN &amp; akses peran</h2>' +
+          '<p class="sub">PIN dipakai pengurus untuk masuk dari tautan publik yang sama. PIN dibuat saat penyiapan pertama dan hanya Super Admin yang bisa menggantinya di sini. Berikan tiap PIN hanya kepada pemegang perannya. Kosongkan kolom yang tidak diubah.</p>' +
+          '<div class="grid2" style="margin-top:.75rem">' +
+          '<div><label class="lbl" for="pin-petugas">PIN Petugas baru (4–6 angka)</label>' +
+          '<input id="pin-petugas" type="password" inputmode="numeric" autocomplete="off" class="inp" placeholder="saat ini: ••••" value="' + esc(ui.pinPetugas || "") + '" data-bind="pinPetugas"></div>' +
+          '<div><label class="lbl" for="pin-bendahara">PIN Bendahara baru (4–6 angka)</label>' +
+          '<input id="pin-bendahara" type="password" inputmode="numeric" autocomplete="off" class="inp" placeholder="saat ini: ••••" value="' + esc(ui.pinBendahara || "") + '" data-bind="pinBendahara"></div>' +
+          '<div><label class="lbl" for="pin-super">PIN Super Admin baru (4–6 angka)</label>' +
+          '<input id="pin-super" type="password" inputmode="numeric" autocomplete="off" class="inp" placeholder="saat ini: ••••" value="' + esc(ui.pinSuper || "") + '" data-bind="pinSuper"></div>' +
+          "</div>" +
+          (ui.pinError ? '<p class="field-err">' + esc(ui.pinError) + "</p>" : "") +
+          (ui.pinDone ? '<p class="ok-note">PIN diperbarui. PIN baru berlaku untuk masuk berikutnya di perangkat ini.</p>' : "") +
+          '<div class="actions-row"><button type="submit" class="btn btn-primary">Simpan PIN baru</button></div></form>';
+        /* Audit log penuh */
+        html += "<section><h2 class=\"sec\">Audit log aktivitas</h2><div class=\"list\" style=\"margin-top:.75rem\">";
+        if (state.audit.length === 0) html += '<p class="empty">Belum ada aktivitas tercatat.</p>';
+        state.audit.slice(0, 100).forEach(function (a) {
+          html += '<div class="row-item"><div><p class="t" style="font-weight:600">' + esc(a.aksi) + '</p><p class="s">' +
+            esc(a.waktu) + " · " + esc(a.peran) + " · " + esc(a.nama) + "</p></div></div>";
+        });
+        html += "</div></section>";
+        html += '<section class="card"><h2 class="sec">Cadangan &amp; deploy</h2>' +
+          '<p class="sub">Ekspor/impor cadangan dan panduan deploy ada di tab Deploy — di peran Super Admin tombol impor aktif penuh. Impor menimpa seluruh data di perangkat ini, jadi khusus Super Admin.</p>' +
+          '<div class="actions-row"><button type="button" class="btn btn-primary" data-act="tab" data-tab="deploy">Buka tab Deploy &amp; Cadangan</button></div></section>';
+        html += "</div>";
+        return html;
+      }
+
       /* ================= Deploy ke Vercel ================= */
       var VERCEL_JSON = [
         "{",
@@ -1589,6 +1778,16 @@
           "    npm i -g vercel",
           "    vercel --prod",
           "",
+          "## Peran & PIN",
+          "",
+          "Siapa pun yang membuka tautan masuk sebagai Warga (hanya lihat).",
+          "File ini dibagikan TANPA PIN bawaan: saat pertama kali tombol Masuk",
+          "sebagai Pengurus ditekan, pemilik membuat PIN Super Admin, Bendahara,",
+          "dan Petugas sendiri (penyiapan pertama, sekali di tiap perangkat).",
+          "Setelah itu pengurus masuk dengan PIN tersebut. Super Admin mengelola",
+          "seluruh sistem: pengaturan, ganti PIN semua peran, audit log,",
+          "impor cadangan, dan deploy.",
+          "",
           "## Soal data",
           "",
           "Versi statis ini menyimpan data di perangkat yang sedang dipakai membuka",
@@ -1629,11 +1828,13 @@
           '<p class="fdesc">Aplikasinya adalah halaman ini — satu file utuh. Simpan salinannya dari berkas yang Anda terima bersama paket ini, lalu letakkan berdampingan dengan vercel.json.</p></div></div>' +
           "</section>";
         html += '<section class="card card-lg"><h2 class="sec">Cadangan data</h2>' +
-          '<p class="sub">Di versi statis ini data tersimpan di perangkat yang dipakai membuka aplikasi. Ekspor cadangan secara rutin; file JSON-nya berisi semua data — jimpitan, kas, dan seluruh modul RT/RW — dan bisa diimpor lagi di perangkat mana pun (cadangan versi lama tetap bisa diimpor).</p>' +
+          '<p class="sub">Di versi statis ini data tersimpan di perangkat yang dipakai membuka aplikasi. Ekspor cadangan secara rutin; file JSON-nya berisi semua data — jimpitan, kas, seluruh modul RT/RW, dan PIN peran. <b>Impor menimpa seluruh data</b>, jadi hanya Super Admin yang bisa mengimpor.</p>' +
           '<div class="actions-row" style="margin-top:1rem">' +
           '<button type="button" class="btn btn-primary" data-act="backup-export">Ekspor cadangan (JSON)</button>' +
-          '<label class="btn btn-ghost" for="backup-file" style="cursor:pointer">Impor cadangan…</label>' +
-          '<input id="backup-file" type="file" accept="application/json,.json" class="sr-only" data-file="backup">' +
+          (isSuper()
+            ? '<label class="btn btn-ghost" for="backup-file" style="cursor:pointer">Impor cadangan… (Super Admin)</label>' +
+              '<input id="backup-file" type="file" accept="application/json,.json" class="sr-only" data-file="backup">'
+            : '<span class="sub">Impor cadangan terkunci — khusus Super Admin.</span>') +
           "</div>" +
           (ui.backupMsg ? '<p class="' + (ui.backupMsg.indexOf("Gagal") === 0 ? "field-err" : "ok-note") + '" style="margin-top:.75rem">' + esc(ui.backupMsg) + "</p>" : "") +
           "</section>";
@@ -1644,7 +1845,7 @@
       /* ================= Aksi ================= */
       function butuhNama() {
         if (!state.nama.trim()) {
-          ui.namaError = state.role === "bendahara" ? "Isi dulu nama bendahara." : "Isi dulu nama petugas yang keliling.";
+          ui.namaError = "Isi dulu nama " + ROLE_LABEL[state.role].toLowerCase() + " yang bertugas.";
           ui.error = "";
           render();
           var el = document.getElementById("nama-petugas");
@@ -1655,6 +1856,7 @@
         return false;
       }
       function catatSetoran(houseId, total) {
+        if (!canCatat()) { ui.loginOpen = true; ui.loginError = "Mencatat setoran khusus pengurus. Masuk dulu dengan PIN."; render(); return; }
         if (butuhNama()) return;
         total = Math.round(Number(total));
         if (!isFinite(total) || total < 1) { ui.error = "Nominal harus angka lebih dari 0."; render(); return; }
@@ -1705,15 +1907,27 @@
         var t = ev.target.closest("[data-act]");
         if (!t) return;
         var act = t.getAttribute("data-act");
-        if (act === "tab") { state.tab = t.getAttribute("data-tab"); ui.error = ""; render(); window.scrollTo(0, 0); }
+        if (act === "tab") {
+          var dest = t.getAttribute("data-tab");
+          if (!canTab(dest)) { ui.loginOpen = true; ui.loginError = "Tab itu khusus pengurus. Masuk dulu dengan PIN peran Anda."; render(); return; }
+          state.tab = dest; ui.error = ""; render(); window.scrollTo(0, 0);
+        }
         else if (act === "side") {
-          state.tab = t.getAttribute("data-tab");
+          var dest2 = t.getAttribute("data-tab");
+          if (!canTab(dest2)) { ui.loginOpen = true; ui.loginError = "Menu itu khusus pengurus. Masuk dulu dengan PIN peran Anda."; render(); return; }
+          state.tab = dest2;
           var sec = t.getAttribute("data-sec");
           if (sec) ui.rtSec = sec;
           ui.error = ""; ui.rtError = ""; ui.rtDone = "";
           render(); window.scrollTo(0, 0);
         }
-        else if (act === "role") { state.role = t.getAttribute("data-role"); ui.namaError = ""; render(); }
+        else if (act === "login-open") { ui.loginOpen = true; ui.loginError = ""; ui.loginPin = ""; render(); var lp = document.getElementById("login-pin"); if (lp) lp.focus(); }
+        else if (act === "login-close") { ui.loginOpen = false; ui.loginPin = ""; ui.loginError = ""; render(); }
+        else if (act === "logout") {
+          logAudit("Keluar dari peran " + ROLE_LABEL[state.role] + " — kembali ke mode Warga.");
+          state.role = "warga"; state.nama = ""; state.tab = "beranda";
+          ui.namaError = ""; ui.error = ""; render(); window.scrollTo(0, 0);
+        }
         else if (act === "shift-date") { ui.tanggal = shiftDate(ui.tanggal, Number(t.getAttribute("data-days"))); render(); }
         else if (act === "catat") { catatSetoran(Number(t.getAttribute("data-house")), Number(t.getAttribute("data-total"))); }
         else if (act === "custom-open") { ui.customFor = Number(t.getAttribute("data-house")); ui.customVal = t.getAttribute("data-val") || ""; ui.voidFor = null; render(); var ci = document.getElementById("nominal-" + ui.customFor); if (ci) { ci.focus(); ci.select(); } }
@@ -1721,6 +1935,7 @@
         else if (act === "void-open") { ui.voidFor = Number(t.getAttribute("data-id")); ui.voidReason = ""; ui.customFor = null; render(); var vi = document.getElementById("batal-" + ui.voidFor); if (vi) vi.focus(); }
         else if (act === "void-close") { ui.voidFor = null; render(); }
         else if (act === "verify") {
+          if (!isBendahara()) { ui.error = "Verifikasi hanya oleh Bendahara atau Super Admin."; render(); return; }
           if (butuhNama()) return;
           state.collections.forEach(function (c) {
             if (c.id === Number(t.getAttribute("data-id"))) { c.status = "terverifikasi"; c.diverifikasiOleh = state.nama.trim(); }
@@ -1728,14 +1943,16 @@
           render();
         }
         else if (act === "verify-all") {
+          if (!isBendahara()) { ui.error = "Verifikasi hanya oleh Bendahara atau Super Admin."; render(); return; }
           if (butuhNama()) return;
           state.collections.forEach(function (c) {
             if (c.tanggal === ui.tanggal && c.status === "menunggu") { c.status = "terverifikasi"; c.diverifikasiOleh = state.nama.trim(); }
           });
           render();
         }
-        else if (act === "house-add") { resetHouseForm(); ui.houseForm = { editingId: null }; render(); var nf = document.getElementById("f-nomor"); if (nf) nf.focus(); }
+        else if (act === "house-add") { if (!canKelola()) return; resetHouseForm(); ui.houseForm = { editingId: null }; render(); var nf = document.getElementById("f-nomor"); if (nf) nf.focus(); }
         else if (act === "house-edit") {
+          if (!canKelola()) return;
           var h = houseById(Number(t.getAttribute("data-id")));
           if (!h) return;
           ui.houseForm = { editingId: h.id };
@@ -1746,9 +1963,15 @@
         else if (act === "house-cancel") { resetHouseForm(); render(); }
         else if (act === "exp-void-open") { ui.voidExpFor = Number(t.getAttribute("data-id")); ui.voidExpReason = ""; render(); }
         else if (act === "exp-void-close") { ui.voidExpFor = null; render(); }
-        else if (act === "unduh-csv") { unduhCsv(); }
-        else if (act === "rt-sec") { ui.rtSec = t.getAttribute("data-sec"); ui.rtError = ""; ui.rtDone = ""; render(); }
+        else if (act === "unduh-csv") { if (!isPengurus()) return; unduhCsv(); }
+        else if (act === "rt-sec") {
+          var wantSec = t.getAttribute("data-sec");
+          var allowedSecs = rtSecsForRole();
+          if (!allowedSecs.some(function (x) { return x.id === wantSec; })) return;
+          ui.rtSec = wantSec; ui.rtError = ""; ui.rtDone = ""; render();
+        }
         else if (act === "iuran-toggle") {
+          if (!canKelola()) return;
           var wid = Number(t.getAttribute("data-id"));
           var w = wargaById(wid);
           var ex = iuranOf(wid, ui.iuranBulan);
@@ -1763,16 +1986,19 @@
           render();
         }
         else if (act === "surat-status") {
+          if (!canKelola()) return;
           var sid = Number(t.getAttribute("data-id")), sst = t.getAttribute("data-status");
           state.surat.forEach(function (s) { if (s.id === sid) { s.status = sst; logAudit("Status surat " + s.jenis + " a.n. " + s.namaPemohon + " → " + sst + "."); } });
           ui.rtDone = "Status surat diperbarui."; render();
         }
         else if (act === "aduan-status") {
+          if (!canKelola()) return;
           var aid = Number(t.getAttribute("data-id")), ast = t.getAttribute("data-status");
           state.aduan.forEach(function (a) { if (a.id === aid) { a.status = ast; logAudit("Status pengaduan dari " + a.nama + " → " + ast + "."); } });
           ui.rtDone = "Status pengaduan diperbarui."; render();
         }
         else if (act === "pinjam-kembali") {
+          if (!canKelola()) return;
           var pid = Number(t.getAttribute("data-id"));
           state.pinjam.forEach(function (p) {
             if (p.id === pid) {
@@ -1786,9 +2012,10 @@
         else if (act === "dl-vercel") { downloadFile("vercel.json", VERCEL_JSON, "application/json;charset=utf-8"); }
         else if (act === "dl-readme") { downloadFile("README-DEPLOY.md", readmeDeploy(), "text/markdown;charset=utf-8"); }
         else if (act === "backup-export") {
+          if (!isPengurus()) { ui.loginOpen = true; ui.loginError = "Ekspor cadangan khusus pengurus. Masuk dulu dengan PIN."; render(); return; }
           var data = {
-            aplikasi: "sistem-jimpitan-warga-rt", versiCadangan: 2, dieksporPada: new Date().toISOString(),
-            settings: state.settings, houses: state.houses,
+            aplikasi: "sistem-jimpitan-warga-rt", versiCadangan: 3, dieksporPada: new Date().toISOString(),
+            settings: state.settings, pins: state.pins, houses: state.houses,
             collections: state.collections, expenses: state.expenses,
             warga: state.warga, iuran: state.iuran, aset: state.aset, surat: state.surat,
             pinjam: state.pinjam, aduan: state.aduan, agenda: state.agenda,
@@ -1822,6 +2049,7 @@
         if (bind === "tanggal") { ui.tanggal = el.value || todayStr(); render(); return; }
         if (bind === "bulan") { ui.bulan = el.value || monthStr(); render(); return; }
         if (el.getAttribute && el.getAttribute("data-file") === "backup") {
+          if (!isSuper()) { ui.backupMsg = "Gagal: impor cadangan hanya untuk Super Admin."; render(); return; }
           var file = el.files && el.files[0];
           if (!file) return;
           var reader = new FileReader();
@@ -1837,6 +2065,11 @@
                 nominalBaku: Math.max(100, Number(data.settings.nominalBaku) || 500),
                 nominalIuran: Math.max(0, Number(data.settings.nominalIuran) || 20000)
               };
+              if (data.pins) {
+                ["petugas", "bendahara", "superadmin"].forEach(function (k) {
+                  if (data.pins[k]) state.pins[k] = String(data.pins[k]);
+                });
+              }
               state.houses = data.houses; state.collections = data.collections; state.expenses = data.expenses;
               /* Cadangan lama (v1) belum punya modul RT/RW — kolom yang tidak ada diisi kosong. */
               ["warga", "iuran", "aset", "surat", "pinjam", "aduan", "agenda", "umum", "umkm", "audit"].forEach(function (k) {
@@ -1861,12 +2094,66 @@
         var kind = form.getAttribute && form.getAttribute("data-form");
         if (!kind) return;
         ev.preventDefault();
-        if (kind === "custom") {
+        if (kind === "setup") {
+          if (!ui.setupNama.trim()) { ui.setupError = "Isi dulu nama Super Admin."; render(); return; }
+          var pinBad = [["setupSuper", "Super Admin"], ["setupBendahara", "Bendahara"], ["setupPetugas", "Petugas"]].filter(function (p) {
+            return !/^[0-9]{4,6}$/.test((ui[p[0]] || "").trim());
+          });
+          if (pinBad.length) { ui.setupError = "PIN " + pinBad[0][1] + " harus 4–6 angka. Semua PIN wajib dibuat sekarang."; render(); return; }
+          state.pins.superadmin = ui.setupSuper.trim();
+          state.pins.bendahara = ui.setupBendahara.trim();
+          state.pins.petugas = ui.setupPetugas.trim();
+          state.role = "superadmin";
+          state.nama = ui.setupNama.trim();
+          ui.setupSuper = ""; ui.setupBendahara = ""; ui.setupPetugas = ""; ui.setupError = "";
+          ui.loginOpen = false;
+          logAudit("Penyiapan pertama selesai: PIN ketiga peran dibuat oleh pemilik; masuk sebagai Super Admin.");
+          state.tab = "admin";
+          render(); window.scrollTo(0, 0);
+        }
+        else if (kind === "login") {
+          var lrole = ui.loginRole;
+          if (!state.pins[lrole]) { ui.loginError = "PIN peran " + ROLE_LABEL[lrole] + " belum dibuat. Super Admin perlu menyiapkannya dulu (tutup jendela ini, lalu Masuk sebagai Pengurus untuk penyiapan)."; render(); return; }
+          if (!ui.loginNama.trim()) { ui.loginError = "Isi dulu nama Anda."; render(); return; }
+          if (String(ui.loginPin).trim() !== String(state.pins[lrole] || "")) {
+            ui.loginError = "PIN salah untuk peran " + ROLE_LABEL[lrole] + ". Coba lagi, atau tetap sebagai Warga.";
+            ui.loginPin = ""; render();
+            var lpf = document.getElementById("login-pin"); if (lpf) lpf.focus();
+            return;
+          }
+          state.role = lrole;
+          state.nama = ui.loginNama.trim();
+          ui.loginOpen = false; ui.loginPin = ""; ui.loginError = ""; ui.namaError = "";
+          logAudit("Masuk sebagai " + ROLE_LABEL[lrole] + ".");
+          if (lrole === "petugas") state.tab = "keliling";
+          else if (lrole === "superadmin") state.tab = "admin";
+          render(); window.scrollTo(0, 0);
+        }
+        else if (kind === "pins") {
+          if (!isSuper()) { ui.pinError = "Hanya Super Admin yang bisa mengganti PIN."; render(); return; }
+          var pinErr = "";
+          [["pinPetugas", "petugas", "Petugas"], ["pinBendahara", "bendahara", "Bendahara"], ["pinSuper", "superadmin", "Super Admin"]].forEach(function (p) {
+            var v = (ui[p[0]] || "").trim();
+            if (v && !/^[0-9]{4,6}$/.test(v)) pinErr = "PIN " + p[2] + " harus 4–6 angka.";
+          });
+          if (pinErr) { ui.pinError = pinErr; ui.pinDone = false; render(); return; }
+          var changed = [];
+          [["pinPetugas", "petugas", "Petugas"], ["pinBendahara", "bendahara", "Bendahara"], ["pinSuper", "superadmin", "Super Admin"]].forEach(function (p) {
+            var v = (ui[p[0]] || "").trim();
+            if (v) { state.pins[p[1]] = v; changed.push(p[2]); ui[p[0]] = null; }
+          });
+          if (changed.length === 0) { ui.pinError = "Tidak ada PIN yang diisi — tidak ada perubahan."; ui.pinDone = false; render(); return; }
+          logAudit("PIN diperbarui untuk peran: " + changed.join(", ") + ".");
+          ui.pinError = ""; ui.pinDone = true;
+          render();
+        }
+        else if (kind === "custom") {
           var v = Number(ui.customVal);
           if (!isFinite(v) || v < 1) { ui.error = "Nominal harus angka lebih dari 0."; render(); return; }
           catatSetoran(Number(form.getAttribute("data-house")), v);
         }
         else if (kind === "void") {
+          if (!canCatat()) return;
           if (!ui.voidReason.trim()) { ui.error = "Alasan pembatalan wajib diisi."; render(); return; }
           var id = Number(form.getAttribute("data-id"));
           state.collections.forEach(function (c) {
@@ -1876,6 +2163,7 @@
           render();
         }
         else if (kind === "house") {
+          if (!canKelola()) { ui.error = "Data rumah hanya dikelola Bendahara dan Super Admin."; render(); return; }
           if (!ui.fNomor.trim()) { ui.fError = "Nomor rumah wajib diisi."; render(); return; }
           if (!ui.fPenghuni.trim()) { ui.fError = "Nama penghuni wajib diisi."; render(); return; }
           var dup = state.houses.some(function (h) {
@@ -1899,6 +2187,7 @@
           render();
         }
         else if (kind === "settings") {
+          if (!isSuper()) { ui.sError = "Pengaturan RT hanya oleh Super Admin."; ui.sDone = false; render(); return; }
           var n = Number(ui.sNominal != null ? ui.sNominal : state.settings.nominalBaku);
           var nm = (ui.sNama != null ? ui.sNama : state.settings.namaRt).trim();
           if (!nm) { ui.sError = "Nama RT wajib diisi."; ui.sDone = false; render(); return; }
@@ -1914,7 +2203,8 @@
           render();
         }
         else if (kind === "expense") {
-          if (!state.nama.trim()) { ui.eError = "Isi dulu nama bendahara di tab Keliling."; render(); return; }
+          if (!isBendahara()) { ui.eError = "Pengeluaran kas hanya dicatat Bendahara atau Super Admin."; render(); return; }
+          if (!state.nama.trim()) { ui.eError = "Nama Anda belum terisi — keluar lalu masuk lagi dengan nama, atau isi nama di tab Keliling."; render(); return; }
           if (!ui.eKeperluan.trim()) { ui.eError = "Keperluan wajib diisi."; render(); return; }
           var j = Number(ui.eJumlah);
           if (!isFinite(j) || j < 1) { ui.eError = "Jumlah harus angka lebih dari 0."; render(); return; }
@@ -1927,6 +2217,7 @@
           render();
         }
         else if (kind === "rt-warga") {
+          if (!canKelola()) { ui.rtError = "Data warga hanya dikelola Bendahara dan Super Admin."; ui.rtDone = ""; render(); return; }
           if (!ui.wNama.trim()) { ui.rtError = "Nama kepala keluarga wajib diisi."; ui.rtDone = ""; render(); return; }
           if (!ui.wAlamat.trim()) { ui.rtError = "Alamat / nomor rumah wajib diisi."; ui.rtDone = ""; render(); return; }
           state.warga.push({ id: nextId(), nama: ui.wNama.trim(), alamat: ui.wAlamat.trim(), noHp: ui.wHp.trim(), status: "aktif" });
@@ -1935,6 +2226,7 @@
           ui.rtError = ""; ui.rtDone = "Data warga tersimpan."; render();
         }
         else if (kind === "rt-aset") {
+          if (!canKelola()) { ui.rtError = "Aset hanya dikelola Bendahara dan Super Admin."; ui.rtDone = ""; render(); return; }
           var aj = Number(ui.aJumlah);
           if (!ui.aNama.trim()) { ui.rtError = "Nama aset wajib diisi."; ui.rtDone = ""; render(); return; }
           if (!isFinite(aj) || aj < 1) { ui.rtError = "Jumlah aset minimal 1."; ui.rtDone = ""; render(); return; }
@@ -1951,6 +2243,7 @@
           ui.rtError = ""; ui.rtDone = "Pengajuan surat terkirim — status: Diajukan."; render();
         }
         else if (kind === "rt-pinjam") {
+          if (!canKelola()) { ui.rtError = "Peminjaman hanya dicatat Bendahara dan Super Admin."; ui.rtDone = ""; render(); return; }
           var pa = asetById(Number(ui.pjAset));
           if (!pa) { ui.rtError = "Pilih aset dulu — tambahkan aset di subtab Aset bila belum ada."; ui.rtDone = ""; render(); return; }
           if (!ui.pjNama.trim()) { ui.rtError = "Nama peminjam wajib diisi."; ui.rtDone = ""; render(); return; }
@@ -1968,6 +2261,7 @@
           ui.rtError = ""; ui.rtDone = "Pengaduan terkirim — status: Baru."; render();
         }
         else if (kind === "rt-agenda") {
+          if (!canKelola()) { ui.rtError = "Agenda hanya dikelola Bendahara dan Super Admin."; ui.rtDone = ""; render(); return; }
           if (!ui.agJudul.trim()) { ui.rtError = "Judul kegiatan wajib diisi."; ui.rtDone = ""; render(); return; }
           state.agenda.push({ id: nextId(), judul: ui.agJudul.trim(), tanggal: ui.agTgl || todayStr(), lokasi: ui.agLokasi.trim(), keterangan: ui.agKet.trim() });
           logAudit("Agenda ditambah: " + ui.agJudul.trim() + " (" + (ui.agTgl || todayStr()) + ").");
@@ -1975,6 +2269,7 @@
           ui.rtError = ""; ui.rtDone = "Agenda tersimpan."; render();
         }
         else if (kind === "rt-umum") {
+          if (!canKelola()) { ui.rtError = "Pengumuman hanya diterbitkan Bendahara dan Super Admin."; ui.rtDone = ""; render(); return; }
           if (!ui.umJudul.trim()) { ui.rtError = "Judul pengumuman wajib diisi."; ui.rtDone = ""; render(); return; }
           state.umum.push({ id: nextId(), judul: ui.umJudul.trim(), isi: ui.umIsi.trim(), tanggal: todayStr() });
           logAudit("Pengumuman diterbitkan: " + ui.umJudul.trim() + ".");
@@ -1982,6 +2277,7 @@
           ui.rtError = ""; ui.rtDone = "Pengumuman diterbitkan — juga tampil di Beranda."; render();
         }
         else if (kind === "rt-umkm") {
+          if (!canKelola()) { ui.rtError = "UMKM hanya dikelola Bendahara dan Super Admin."; ui.rtDone = ""; render(); return; }
           if (!ui.ukNama.trim()) { ui.rtError = "Nama usaha wajib diisi."; ui.rtDone = ""; render(); return; }
           if (!ui.ukPemilik.trim()) { ui.rtError = "Nama pemilik wajib diisi."; ui.rtDone = ""; render(); return; }
           state.umkm.push({ id: nextId(), namaUsaha: ui.ukNama.trim(), pemilik: ui.ukPemilik.trim(), kategori: ui.ukKategori.trim(), kontak: ui.ukKontak.trim(), deskripsi: ui.ukDesk.trim() });
@@ -1990,6 +2286,7 @@
           ui.rtError = ""; ui.rtDone = "UMKM tersimpan."; render();
         }
         else if (kind === "exp-void") {
+          if (!isBendahara()) return;
           if (!ui.voidExpReason.trim()) { ui.error = "Alasan pembatalan wajib diisi."; render(); return; }
           var eid = Number(form.getAttribute("data-id"));
           state.expenses.forEach(function (e) {
