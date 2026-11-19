@@ -642,7 +642,7 @@
         sNama: null, sWilayah: null, sNominal: null, sIuran: null, sError: "", sDone: false,
         eTgl: todayStr(), eKeperluan: "", eJumlah: "", eKet: "", eError: "",
         backupMsg: "",
-        cloudUrl: "", cloudToken: "", cloudMsg: "", cloudErr: "", cloudConfirm: false,
+        cloudToken: "", cloudMsg: "", cloudErr: "", cloudConfirm: false,
         rtSec: "warga",
         iuranBulan: monthStr(),
         rtError: "", rtDone: "",
@@ -776,19 +776,24 @@
         } catch (e) { /* snapshot rusak/tidak terbaca — mulai dari keadaan awal */ }
       }
 
-      /* ================= Sinkronisasi Cloud (Google Drive/Sheets) =================
-         Data bisa disinkronkan antarperangkat lewat Web App Google Apps Script:
-         seluruh state disimpan sebagai satu file JSON di Google Drive pemilik
-         dan dicerminkan ke Spreadsheet supaya bisa dibaca pengurus. Pengaturan
-         cloud (URL Web App, token, ID perangkat ini) disimpan LOKAL per
-         perangkat di kunci tersendiri dan TIDAK PERNAH ikut di dalam state
-         yang disinkronkan. localStorage tetap cadangan utama: bila cloud
-         gagal dihubungi (offline), aplikasi tetap berjalan dari data
+      /* ================= Sinkronisasi Cloud (Turso) =================
+         Data bisa disinkronkan antarperangkat lewat database Turso (libSQL):
+         seluruh state disimpan sebagai satu baris JSON di tabel sync_state
+         di database Turso pemilik. Endpoint-nya adalah Vercel Serverless
+         Function same-origin /api/sync (BUKAN Next.js) — kredensial Turso
+         hanya ada di environment variable server dan tidak pernah sampai
+         ke browser. Token sinkronisasi dan ID perangkat ini disimpan LOKAL
+         per perangkat di kunci tersendiri dan TIDAK PERNAH ikut di dalam
+         state yang disinkronkan. localStorage tetap cadangan utama: bila
+         cloud gagal dihubungi (offline), aplikasi tetap berjalan dari data
          perangkat dan menyinkronkan lagi nanti — galat cloud tidak pernah
          menghapus data lokal. Konflik diselesaikan last-write-wins menurut
-         updatedAt: perangkat yang kalah mengunduh data cloud. */
+         updatedAt: perangkat yang kalah mengunduh data cloud.
+         Migrasi: kunci localStorage tetap sirt-rw-cloud-v1; URL Web App
+         lama yang tersimpan diabaikan, endpoint kini tetap /api/sync. */
       var LS_CLOUD_KEY = "sirt-rw-cloud-v1";
-      var cloud = { url: "", token: "", deviceId: "", lastSyncAt: null, lastKnownUpdatedAt: null };
+      var CLOUD_ENDPOINT = "/api/sync"; /* Vercel Serverless Function (Turso) — same-origin */
+      var cloud = { url: CLOUD_ENDPOINT, token: "", deviceId: "", lastSyncAt: null, lastKnownUpdatedAt: null };
       var cloudState = "belum";        /* belum | proses | tersinkron | offline | galat */
       var cloudLastDevice = "";        /* deviceId perangkat terakhir yang mengubah data cloud */
       var cloudTimer = null;           /* timer debounce simpan otomatis */
@@ -798,7 +803,7 @@
       var cloudLastSentStr = null;     /* payload yang isinya sama persis dengan cloud terakhir diketahui */
       var cloudPending = null;         /* jawaban load yang menunggu pilihan pengguna (modal) */
 
-      function cloudTerhubung() { return !!(cloud.url && cloud.token); }
+      function cloudTerhubung() { return !!cloud.token; }
       function simpanCloudCfg() {
         try { localStorage.setItem(LS_CLOUD_KEY, JSON.stringify(cloud)); } catch (e) { /* abaikan */ }
       }
@@ -808,7 +813,7 @@
           if (raw) {
             var d = JSON.parse(raw);
             if (d && typeof d === "object") {
-              cloud.url = String(d.url || "");
+              cloud.url = CLOUD_ENDPOINT; /* URL Web App lama diabaikan */
               cloud.token = String(d.token || "");
               cloud.deviceId = String(d.deviceId || "");
               cloud.lastSyncAt = d.lastSyncAt || null;
@@ -849,8 +854,7 @@
         return "Tidak dapat menghubungi server cloud.";
       }
       function cloudGet(action) {
-        var sep = cloud.url.indexOf("?") >= 0 ? "&" : "?";
-        return fetch(cloud.url + sep + "action=" + action + "&token=" + encodeURIComponent(cloud.token), { method: "GET" })
+        return fetch(CLOUD_ENDPOINT + "?action=" + action + "&token=" + encodeURIComponent(cloud.token), { method: "GET" })
           .then(function (r) { return r.json(); });
       }
       function fmtJam(iso) {
@@ -924,7 +928,7 @@
           if (!res.exists) {
             cloudState = "tersinkron";
             cloud.lastSyncAt = new Date().toISOString(); simpanCloudCfg();
-            ui.cloudMsg = "Cloud masih kosong — belum ada data tersimpan di Google Drive.";
+            ui.cloudMsg = "Cloud masih kosong — belum ada data tersimpan di Turso.";
             ui.cloudErr = ""; render(); return false;
           }
           cloudLastSentStr = JSON.stringify(cloudPayloadFrom(res.state));
@@ -967,7 +971,7 @@
           token: cloud.token, action: "save",
           updatedAt: new Date().toISOString(), deviceId: cloud.deviceId, state: payload
         };
-        return fetch(cloud.url, {
+        return fetch(CLOUD_ENDPOINT, {
           method: "POST", headers: { "Content-Type": "text/plain" }, body: JSON.stringify(body)
         }).then(function (r) { return r.json(); }).then(function (res) {
           cloudSaving = false;
@@ -977,7 +981,7 @@
             cloudLastSentStr = JSON.stringify(payload);
             cloudLastDevice = cloud.deviceId;
             cloudState = "tersinkron";
-            ui.cloudMsg = "Data perangkat ini tersimpan di cloud (Google Drive).";
+            ui.cloudMsg = "Data perangkat ini tersimpan di cloud (Turso).";
             ui.cloudErr = ""; render(); return true;
           }
           if (res && res.error === "conflict") {
@@ -1012,12 +1016,11 @@
          halaman (dialog konfirmasi bawaan browser tidak berfungsi di dalam
          bingkai aplikasi ini). Bila perangkat ini kosong → langsung unduh. */
       function cloudHubungkan() {
-        var url = (ui.cloudUrl || "").trim();
         var token = (ui.cloudToken || "").trim();
-        if (!url || !token) {
-          ui.cloudErr = "Isi dulu URL Web App dan Token-nya."; ui.cloudMsg = ""; render(); return;
+        if (!token) {
+          ui.cloudErr = "Isi dulu Token sinkronisasinya."; ui.cloudMsg = ""; render(); return;
         }
-        cloud.url = url; cloud.token = token; simpanCloudCfg();
+        cloud.url = CLOUD_ENDPOINT; cloud.token = token; simpanCloudCfg();
         ui.cloudErr = ""; ui.cloudMsg = "Menghubungi server cloud…"; cloudState = "proses"; render();
         cloudGet("ping").then(function (res) {
           if (!res || !res.ok) {
@@ -1033,7 +1036,7 @@
             if (!lr.exists) {
               cloudState = "tersinkron";
               cloud.lastSyncAt = new Date().toISOString(); simpanCloudCfg();
-              ui.cloudMsg = "Terhubung. Cloud masih kosong — tekan \u201CUnggah Data Perangkat Ini ke Cloud\u201D untuk menyimpan data perangkat ini ke Google Drive.";
+              ui.cloudMsg = "Terhubung. Cloud masih kosong — tekan \u201CUnggah Data Perangkat Ini ke Cloud\u201D untuk menyimpan data perangkat ini ke Turso.";
               ui.cloudErr = ""; render(); return;
             }
             cloudLastSentStr = JSON.stringify(cloudPayloadFrom(lr.state));
@@ -1077,13 +1080,11 @@
           : cloudState === "proses" ? "Sedang menyinkronkan…"
           : cloudState === "galat" ? "Terhubung — sinkron terakhir bermasalah, lihat pesan di bawah"
           : "Terhubung";
-        return '<section class="card"><h2 class="sec">Sinkronisasi Cloud (Google Drive)</h2>' +
-          '<p class="sub">Hubungkan aplikasi ini ke Web App Google Apps Script milik RT: seluruh data tersimpan sebagai file JSON di Google Drive dan dicerminkan ke Spreadsheet, sehingga data yang sama bisa dipakai bergantian di banyak perangkat. URL dan token hanya disimpan di perangkat ini, tidak ikut tersinkron. Data juga tetap tersimpan lokal sebagai cadangan — saat offline aplikasi tetap berjalan dan menyinkronkan lagi begitu online. Setiap perubahan data terunggah otomatis beberapa detik setelah disimpan.</p>' +
-          '<div class="grid2" style="margin-top:.75rem">' +
-          '<div><label class="lbl" for="cloud-url">URL Web App (Apps Script)</label>' +
-          '<input id="cloud-url" type="url" class="inp" placeholder="https://script.google.com/macros/s/…/exec" value="' + esc(ui.cloudUrl || "") + '" data-bind="cloudUrl"></div>' +
+        return '<section class="card"><h2 class="sec">Sinkronisasi Cloud (Turso)</h2>' +
+          '<p class="sub">Hubungkan aplikasi ini ke database Turso milik RT: seluruh data tersimpan di database Turso, sehingga data yang sama bisa dipakai bergantian di banyak perangkat. Token hanya disimpan di perangkat ini, tidak ikut tersinkron. Data juga tetap tersimpan lokal sebagai cadangan — saat offline aplikasi tetap berjalan dan menyinkronkan lagi begitu online. Setiap perubahan data terunggah otomatis beberapa detik setelah disimpan.</p>' +
+          '<div style="margin-top:.75rem">' +
           '<div><label class="lbl" for="cloud-token">Token sinkronisasi</label>' +
-          '<input id="cloud-token" type="password" autocomplete="off" class="inp" placeholder="token dari file Code.gs" value="' + esc(ui.cloudToken || "") + '" data-bind="cloudToken"></div></div>' +
+          '<input id="cloud-token" type="password" autocomplete="off" class="inp" placeholder="token sinkronisasi (env SYNC_TOKEN di Vercel)" value="' + esc(ui.cloudToken || "") + '" data-bind="cloudToken"></div></div>' +
           '<div class="list" style="margin-top:.75rem">' +
           '<div class="row-item"><div><p class="t">Status koneksi</p><p class="s">' + esc(statusTeks) + '</p></div></div>' +
           '<div class="row-item"><div><p class="t">Terakhir sinkron</p><p class="s">' +
@@ -1105,7 +1106,7 @@
       function viewCloudConfirm() {
         return '<div class="modal-overlay"><div class="modal-card">' +
           '<h2 class="sec">Data cloud dan data perangkat ini berbeda</h2>' +
-          '<p class="sub">Di Google Drive sudah tersimpan data' +
+          '<p class="sub">Di Turso sudah tersimpan data' +
             (cloudLastDevice ? " (terakhir diubah oleh perangkat " + esc(cloudLastDevice) + ")" : "") +
             ", dan perangkat ini juga berisi data. Pilih data mana yang dipakai — data yang tidak dipilih akan tertimpa:</p>" +
           '<div class="actions-row" style="flex-direction:column;align-items:stretch">' +
@@ -3339,22 +3340,22 @@
         else if (act === "cloud-connect") { if (!isSuper()) return; cloudHubungkan(); }
         else if (act === "cloud-upload") {
           if (!isSuper()) return;
-          if (!cloudTerhubung()) { ui.cloudErr = "Belum terhubung ke cloud. Isi URL & token lalu tekan Hubungkan & Uji Koneksi."; ui.cloudMsg = ""; render(); return; }
+          if (!cloudTerhubung()) { ui.cloudErr = "Belum terhubung ke cloud. Isi token lalu tekan Hubungkan & Uji Koneksi."; ui.cloudMsg = ""; render(); return; }
           ui.cloudErr = ""; cloudSave();
         }
         else if (act === "cloud-download") {
           if (!isSuper()) return;
-          if (!cloudTerhubung()) { ui.cloudErr = "Belum terhubung ke cloud. Isi URL & token lalu tekan Hubungkan & Uji Koneksi."; ui.cloudMsg = ""; render(); return; }
+          if (!cloudTerhubung()) { ui.cloudErr = "Belum terhubung ke cloud. Isi token lalu tekan Hubungkan & Uji Koneksi."; ui.cloudMsg = ""; render(); return; }
           ui.cloudErr = ""; cloudLoad({ force: true, manual: true });
         }
         else if (act === "cloud-disconnect") {
           if (!isSuper()) return;
-          cloud.url = ""; cloud.token = "";
+          cloud.token = "";
           cloud.lastSyncAt = null; cloud.lastKnownUpdatedAt = null;
           cloudState = "belum"; cloudLastDevice = ""; cloudLastSentStr = null; cloudPending = null;
           if (cloudTimer) { clearTimeout(cloudTimer); cloudTimer = null; }
-          ui.cloudUrl = ""; ui.cloudToken = ""; ui.cloudErr = "";
-          ui.cloudMsg = "Cloud diputuskan di perangkat ini. Data lokal tidak berubah; data yang sudah ada di Google Drive tetap tersimpan.";
+          ui.cloudToken = ""; ui.cloudErr = "";
+          ui.cloudMsg = "Cloud diputuskan di perangkat ini. Data lokal tidak berubah; data yang sudah ada di Turso tetap tersimpan.";
           simpanCloudCfg(); render();
         }
         else if (act === "cloud-confirm-cloud") {
@@ -3364,7 +3365,7 @@
             cloud.lastKnownUpdatedAt = lrC.updatedAt;
             cloud.lastSyncAt = new Date().toISOString(); simpanCloudCfg();
             cloudState = "tersinkron";
-            ui.cloudMsg = "Data cloud dipakai — perangkat ini sekarang memakai data dari Google Drive.";
+            ui.cloudMsg = "Data cloud dipakai — perangkat ini sekarang memakai data dari Turso.";
             ui.cloudErr = "";
           }
           render();
@@ -3943,7 +3944,6 @@
 
       muatPerangkat();
       muatCloudCfg();
-      ui.cloudUrl = cloud.url;
       ui.cloudToken = cloud.token;
       /* Selama unduh awal dari cloud berjalan, unggah otomatis ditahan supaya
          data lokal lama tidak menimpa data cloud yang lebih baru. */
