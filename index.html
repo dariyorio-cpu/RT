@@ -710,6 +710,32 @@
           return true;
         } catch (e) { return false; }
       })();
+      /* Pelacak "apa yang terakhir disinkronkan tab ini dengan penyimpanan":
+         dipakai simpanPerangkat() supaya tab yang TIDAK mengubah apa pun
+         tidak menulis ulang snapshot — menulis ulang state basi akan
+         menghapus data yang sudah disimpan tab lain (pengguna baru +
+         auditnya). String ini diperbarui setiap kali tab ini menulis
+         atau memuat dari penyimpanan (lihat tandaiSnapTersimpan()). */
+      var lastSnapStr = null;   /* string snapshot data terakhir tab ini */
+      var lastSesiStr = null;   /* string kunci sesi terakhir tab ini */
+      function snapshotState() {
+        var snap = { versi: 1, seq: state.seq, sesi: { role: state.role, nama: state.nama } };
+        LS_FIELDS.forEach(function (k) { snap[k] = state[k]; });
+        return snap;
+      }
+      function sesiState() {
+        return {
+          pins: state.pins, users: state.users,
+          sesi: { role: state.role, nama: state.nama, userId: state.userId || null }
+        };
+      }
+      /* Tandai state saat ini sebagai "sudah sinkron dengan penyimpanan":
+         dipanggil sesudah menulis dan sesudah memuat, supaya render
+         berikutnya tahu tidak ada yang berubah. */
+      function tandaiSnapTersimpan() {
+        try { lastSnapStr = JSON.stringify(snapshotState()); } catch (e) { /* abaikan */ }
+        try { lastSesiStr = JSON.stringify(sesiState()); } catch (e) { /* abaikan */ }
+      }
       /* PIN + sesi masuk disimpan di kunci KECIL tersendiri, terpisah dari
          snapshot data besar. Snapshot data bisa gagal ditulis (mis. kuota
          penuh oleh foto pengurus) atau rusak — PIN dan sesi tidak boleh ikut
@@ -717,10 +743,13 @@
          tepat setelah penyiapan PIN, login, ganti PIN, dan logout. */
       function simpanSesi() {
         try {
-          localStorage.setItem(LS_SESI_KEY, JSON.stringify({
-            pins: state.pins, users: state.users,
-            sesi: { role: state.role, nama: state.nama, userId: state.userId || null }
-          }));
+          var s = JSON.stringify(sesiState());
+          /* Isi kunci sesi tidak berubah sejak terakhir ditulis/dimuat:
+             jangan tulis ulang — tab lain mungkin sudah menyimpan sesi
+             yang lebih baru (mis. pengguna baru). */
+          if (s === lastSesiStr) return;
+          localStorage.setItem(LS_SESI_KEY, s);
+          lastSesiStr = s;
         } catch (e) { /* penyimpanan tidak tersedia — sesi hanya di memori */ }
       }
       /* Pulihkan sesi masuk dari objek sesi tersimpan: akun pengguna bernama
@@ -742,10 +771,38 @@
       }
       function simpanPerangkat() {
         simpanSesi();
+        var snapStr = JSON.stringify(snapshotState());
+        /* Menerapkan data cloud adalah penulisan yang berwenang (data cloud
+           lebih baru) — tulis apa adanya, tanpa uji basi. */
+        if (!cloudSuppressSave) {
+          /* (1) Tab ini tidak mengubah apa pun sejak terakhir menulis /
+             memuat: JANGAN menulis ulang snapshot. render() dipanggil di
+             setiap ketikan/klik dan di setiap penyelesaian sinkron cloud,
+             jadi tab basi yang sekadar me-render akan menimpa snapshot
+             dengan state lamanya dan menghapus data tab lain (pengguna
+             baru beserta entri audit penambahannya). */
+          if (snapStr === lastSnapStr) { jadwalkanCloudSave(); return; }
+          /* (2) Tab lain sudah menyimpan state lebih baru (seq lebih
+             besar): muat ulang dulu supaya tulisan tab ini tidak menimpa
+             data tab lain. Bila tab ini juga sempat mengubah data
+             (pengeditan bersamaan dari dua tab), perubahan lokal yang
+             belum tersimpan itu tidak dipertahankan — arsitektur ini
+             last-write-wins antar-tab. */
+          try {
+            var rawStored = localStorage.getItem(LS_KEY);
+            if (rawStored) {
+              var dStored = JSON.parse(rawStored);
+              if (dStored && Number(dStored.seq) > Number(state.seq)) {
+                muatPerangkat();
+                render();
+                return;
+              }
+            }
+          } catch (e) { /* snapshot tersimpan rusak — tulis seperti biasa */ }
+        }
         try {
-          var snap = { versi: 1, seq: state.seq, sesi: { role: state.role, nama: state.nama } };
-          LS_FIELDS.forEach(function (k) { snap[k] = state[k]; });
-          localStorage.setItem(LS_KEY, JSON.stringify(snap));
+          localStorage.setItem(LS_KEY, snapStr);
+          lastSnapStr = snapStr;
         } catch (e) { /* penyimpanan tidak tersedia — lanjut dari memori */ }
         jadwalkanCloudSave();
       }
@@ -769,10 +826,10 @@
            cadangan bila kunci sesi belum ada). */
         try {
           var raw = localStorage.getItem(LS_KEY);
-          if (!raw) return;
+          if (!raw) { tandaiSnapTersimpan(); return; }
           var d = JSON.parse(raw);
           if (!d || !Array.isArray(d.houses) || !Array.isArray(d.collections) || !Array.isArray(d.expenses) ||
-              !d.settings || typeof d.settings !== "object") return;
+              !d.settings || typeof d.settings !== "object") { tandaiSnapTersimpan(); return; }
           state.settings = {
             namaRt: String(d.settings.namaRt || "RT Kami"),
             wilayah: String(d.settings.wilayah || ""),
@@ -801,6 +858,7 @@
              di perangkat ini (atau akun pengguna bernama itu masih aktif). */
           if (state.role === "warga" && d.sesi) pulihkanSesi(d.sesi);
         } catch (e) { /* snapshot rusak/tidak terbaca — mulai dari keadaan awal */ }
+        tandaiSnapTersimpan();
       }
 
       /* ================= Sinkronisasi Cloud (Turso) =================
@@ -4288,6 +4346,18 @@
           ui.voidExpFor = null; ui.voidExpReason = ""; ui.error = "";
           render();
         }
+      });
+
+      /* Tab/jendela lain (browser yang sama) baru saja menyimpan data:
+         muat ulang state dari penyimpanan supaya tab ini tidak lagi basi
+         dan tidak menimpa data itu saat me-render. Tab yang menulis tidak
+         menerima event ini untuk tulisannya sendiri, dan muat ulang di sini
+         tidak memicu tulis balik (simpanPerangkat melewati snapshot yang
+         tidak berubah), jadi tidak ada ping-pong antar-tab. */
+      window.addEventListener("storage", function (ev) {
+        if (ev.key !== LS_KEY && ev.key !== LS_SESI_KEY) return;
+        try { muatPerangkat(); } catch (e) { /* abaikan — lanjut render */ }
+        render();
       });
 
       muatPerangkat();
