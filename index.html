@@ -537,6 +537,22 @@
         font-size: 0.8125rem; font-weight: 700; white-space: nowrap;
       }
       .role-badge.warga { background: var(--surface2); color: var(--dim); border: 1px solid var(--border); }
+      button.role-badge { cursor: pointer; font: inherit; }
+      button.role-badge:hover { filter: brightness(0.96); }
+      /* ---------- Profil Saya ---------- */
+      .profil-head { display: flex; gap: 1rem; align-items: center; }
+      .profil-avatar {
+        width: 4rem; height: 4rem; flex: none; border-radius: 50%;
+        background: linear-gradient(135deg, #0e7a5a 0%, var(--accent-dark) 100%);
+        color: #fff; display: flex; align-items: center; justify-content: center;
+        font-size: 1.5rem; font-weight: 800; letter-spacing: 0.02em;
+        border: 2px solid rgba(217, 168, 63, 0.55);
+        box-shadow: 0 6px 16px rgba(7, 68, 51, 0.25);
+      }
+      @media (max-width: 640px) {
+        .profil-head { gap: 0.75rem; }
+        .profil-avatar { width: 3.25rem; height: 3.25rem; font-size: 1.25rem; }
+      }
       .role-badge.petugas { background: var(--accent-soft); color: var(--accent-ink); border: 1px solid var(--border); }
       .role-badge.bendahara { background: var(--green-bg); color: var(--green); border: 1px solid var(--border); }
       .role-badge.admin { background: var(--accent-soft); color: var(--accent-ink); border: 1px solid var(--border); }
@@ -791,6 +807,7 @@
         loginOpen: false, loginPin: "", loginNama: "", loginError: "",
         uNama: "", uPeran: "petugas", uPin: "", uPinConf: "", uHp: "", uError: "", uDone: false,
         userPinFor: null, userPinNew: "", userPinConf: "", userPinError: "", userPinDone: false,
+        profilPinOpen: false, profilPinLama: "", profilPinBaru: "", profilPinConf: "", profilPinError: "", profilPinDone: false,
         setupNama: "", setupSuper: "", setupBendahara: "", setupPetugas: "", setupError: "",
         serverLogin: true, serverNama: "", serverPin: "", serverError: "", serverBusy: false, serverNoAccount: false,
         pinPetugas: null, pinBendahara: null, pinSuper: null, pinError: "", pinDone: false,
@@ -1520,7 +1537,7 @@
       function canCatat() { return isPengurus(); }              /* catat/ubah/batal setoran jimpitan */
       function canKelola() { return isBendahara(); }            /* verifikasi, kas keluar, rumah, modul RT/RW */
       function canTab(tab) {
-        if (state.role === "warga") return tab === "beranda" || tab === "kas" || tab === "rtrw" || tab === "laporan";
+        if (state.role === "warga") return tab === "beranda" || tab === "kas" || tab === "rtrw" || tab === "laporan" || tab === "profil";
         if (state.role === "superadmin") return true;
         return tab !== "pengaturan" && tab !== "users"; /* petugas, bendahara, admin: semua tab kecuali Pengaturan & Users */
       }
@@ -1533,7 +1550,8 @@
         { id: "laporan", label: "Laporan", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10"/></svg>' },
         { id: "rtrw", label: "RT/RW", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 21h18"/><path d="M5 21V7l7-4 7 4v14"/><path d="M9 21v-6h6v6"/></svg>' },
         { id: "users", label: "Users", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>' },
-        { id: "pengaturan", label: "Pengaturan", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-3.6 8-10V5l-8-3-8 3v7c0 6.4 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>' }
+        { id: "pengaturan", label: "Pengaturan", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-3.6 8-10V5l-8-3-8 3v7c0 6.4 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>' },
+        { id: "profil", label: "Profil Saya", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>' }
       ];
       function badge(tone, text) {
         return '<span class="badge badge-' + tone + '">' + esc(text) + "</span>";
@@ -1566,7 +1584,8 @@
         { tab: "rtrw", sec: "broadcast", label: "Broadcast WA", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></svg>' },
         { tab: "laporan", label: "Laporan", sepBefore: true, icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3v18h18"/><path d="M7 15v3M12 10v8M17 6v12"/></svg>' },
         { tab: "users", label: "Users", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>', superOnly: true },
-        { tab: "pengaturan", label: "Pengaturan", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-3.6 8-10V5l-8-3-8 3v7c0 6.4 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>', superOnly: true }
+        { tab: "pengaturan", label: "Pengaturan", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-3.6 8-10V5l-8-3-8 3v7c0 6.4 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>', superOnly: true },
+        { tab: "profil", label: "Profil Saya", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>' }
       ];
       function sideActive(it) {
         if (it.tab !== state.tab) return false;
@@ -1585,22 +1604,24 @@
         var pc = pendingCount();
         if (!canTab(state.tab)) state.tab = "beranda";
         var tabs = visibleTabs();
-        var roleNote = state.role === "petugas"
-          ? "Anda masuk sebagai Petugas: hanya mencatat setoran jimpitan saat keliling. Verifikasi, kas keluar, data rumah, dan modul RT/RW tidak bisa diubah dari peran ini. Sesi tersimpan di perangkat ini — refresh tidak perlu memasukkan PIN lagi; akhiri lewat tombol Keluar."
-          : state.role === "bendahara"
-            ? "Anda masuk sebagai Bendahara: memverifikasi setoran, mencatat pengeluaran, mengelola data rumah dan seluruh modul RT/RW. Pengaturan sistem, PIN, cadangan, dan deploy khusus Super Admin. Sesi tersimpan di perangkat ini — refresh tidak perlu memasukkan PIN lagi; akhiri lewat tombol Keluar."
-            : state.role === "admin"
-              ? "Anda masuk sebagai Admin: mengelola data rumah dan seluruh modul RT/RW seperti Bendahara — mencatat & memverifikasi setoran, kas, dan ceklis iuran. Users, Pengaturan, dan PIN khusus Super Admin. Sesi tersimpan di perangkat ini — refresh tidak perlu memasukkan PIN lagi; akhiri lewat tombol Keluar."
-              : state.role === "superadmin"
-              ? "Anda masuk sebagai Super Admin: mengelola SELURUH sistem — semua data, pengaturan RT, PIN semua peran, audit log, cadangan data, dan deploy. Sesi tersimpan di perangkat ini — refresh tidak perlu memasukkan PIN lagi; gunakan tombol Keluar setelah selesai."
-              : ""; /* Beranda publik tanpa paragraf penjelasan — hapus seluruhnya. */
+        var roleNote = ""; /* Paragraf penjelasan peran setelah login dihapus
+          untuk semua peran — memenuhi tampilan, seperti paragraf
+          "Mode Warga (publik)" di beranda yang sudah dihapus. */
         var html = "";
         html += '<header class="top"><div class="wrap">';
         html += '<div class="top-row"><div class="brand"><span class="brand-mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 21h18"/><path d="M5 21V7l7-4 7 4v14"/><path d="M9 21v-6h6v6"/></svg></span><div>';
         html += '<p class="app-name">SI-RT/RW Digital · ' + esc(s.namaRt) + ' <span class="badge badge-amber">Versi Vercel</span></p>';
         html += '</div></div><div class="top-actions">';
-        html += '<span class="role-badge ' + state.role + '">' + esc(ROLE_LABEL[state.role]) +
-          (isPengurus() && state.nama.trim() ? " · " + esc(state.nama.trim()) : "") + "</span>";
+        /* Chip nama/peran di header: tombol pembuka Profil Saya bila sudah
+           masuk (pengurus atau pengguna Warga bernama) — peran Warga tidak
+           punya sidebar, jadi chip inilah jalannya ke Profil. Mode Warga
+           publik (tanpa akun masuk) tetap tampil sebagai teks biasa. */
+        var chipMasuk = isPengurus() || state.userId != null;
+        var chipLabel = esc(ROLE_LABEL[state.role]) +
+          ((isPengurus() || state.userId != null) && state.nama.trim() ? " · " + esc(state.nama.trim()) : "");
+        html += chipMasuk
+          ? '<button type="button" class="role-badge ' + state.role + '" data-act="profil-open" title="Buka Profil Saya">' + chipLabel + "</button>"
+          : '<span class="role-badge ' + state.role + '">' + chipLabel + "</span>";
         html += '<span class="badge ' + cloudPillTone() + '">' + esc(cloudPillText()) + "</span>";
         if (isPengurus()) {
           var nCount = notifItems().length;
@@ -1669,11 +1690,15 @@
         else if (state.tab === "rtrw") html += viewRTRW();
         else if (state.tab === "pengaturan") html += viewAdmin();
         else if (state.tab === "users") html += viewUsers();
+        else if (state.tab === "profil") html += viewProfil();
         html += "</div></div></div></main>";
         if (ui.loginOpen) html += viewLogin();
         if (ui.cloudConfirm) html += viewCloudConfirm();
-        html += '<nav class="tabs-mobile" aria-label="Menu utama"><div class="grid" style="grid-template-columns:repeat(' + tabs.length + ',1fr)">';
-        tabs.forEach(function (t) {
+        /* Nav bawah HP tidak memuat Profil (dibuka lewat sidebar / chip
+           header) supaya tetap 7 entri yang lega. */
+        var tabsMobile = tabs.filter(function (t) { return t.id !== "profil"; });
+        html += '<nav class="tabs-mobile" aria-label="Menu utama"><div class="grid" style="grid-template-columns:repeat(' + tabsMobile.length + ',1fr)">';
+        tabsMobile.forEach(function (t) {
           html += '<button type="button" data-act="tab" data-tab="' + t.id + '"' +
             (state.tab === t.id ? ' aria-current="page"' : "") + ">" + t.icon + "<span>" + t.label + "</span>" +
             (t.id === "keliling" && pc > 0 ? '<span class="pill-count num">' + pc + "</span>" : "") +
@@ -3370,6 +3395,62 @@
         ].join("\n");
       }
 
+      function inisialNama(nama) {
+        var p = String(nama || "").trim().split(/\s+/).filter(Boolean);
+        if (!p.length) return "?";
+        return (p[0].charAt(0) + (p.length > 1 ? p[1].charAt(0) : "")).toUpperCase();
+      }
+      /* Profil Saya: identitas pengguna yang sedang masuk, ganti PIN
+         sendiri, dan keluar. Dari halaman ini HANYA PIN milik sendiri yang
+         bisa diubah — PIN pengguna lain tetap hanya lewat menu Users
+         (Super Admin). Sesi tetap berjalan setelah ganti PIN. */
+      function viewProfil() {
+        if (state.role === "warga" && state.userId == null) {
+          return '<div class="stack-lg"><section><h2 class="sec">Profil Saya</h2>' +
+            '<p class="sub">Anda sedang dalam mode Warga (publik) tanpa akun masuk — belum ada profil untuk ditampilkan.</p>' +
+            '<div class="actions-row"><button type="button" class="btn btn-primary" data-act="login-open">Login</button></div></section></div>';
+        }
+        var me = null;
+        if (state.userId != null) {
+          (state.users || []).forEach(function (x) { if (String(x.id) === String(state.userId)) me = x; });
+        }
+        var nama = me ? me.nama : state.nama;
+        var peran = me ? me.peran : state.role;
+        var hp = me ? (me.hp || "") : "";
+        var jenis = me ? "Pengguna bernama" : "Akun peran bawaan";
+        var dibuat = me ? (me.dibuat ? fmtSingkat(me.dibuat) : "-") : "-";
+        var html = '<div class="stack-lg">';
+        html += '<section><h2 class="sec">Profil Saya</h2><div class="card" style="margin-top:.75rem;padding:1rem 1.25rem"><div class="profil-head">' +
+          '<span class="profil-avatar" aria-hidden="true">' + esc(inisialNama(nama)) + '</span>' +
+          '<div style="min-width:0"><p class="t" style="font-size:1.125rem;font-weight:800;margin:0;overflow-wrap:anywhere">' + esc(nama || "-") + '</p>' +
+          '<p class="s" style="margin:.125rem 0 0">' + esc(ROLE_LABEL[peran] || peran) + " · " + esc(jenis) + "</p>" +
+          (hp ? '<p class="s" style="margin:.125rem 0 0">HP/WA: ' + esc(hp) + "</p>" : "") +
+          '<p class="s" style="margin:.125rem 0 0">Terdaftar: ' + esc(dibuat) + "</p></div></div></div></section>";
+        html += '<section><h2 class="sec">Keamanan akun</h2><div class="card" style="margin-top:.75rem;padding:1rem 1.25rem">';
+        if (!ui.profilPinOpen) {
+          html += '<p class="sub" style="margin-top:0">Ganti PIN yang Anda pakai untuk masuk — hanya PIN akun ini yang berubah, PIN pengguna lain tidak tersentuh.</p>' +
+            '<div class="actions-row"><button type="button" class="btn btn-primary" data-act="profil-pin-open">Ganti PIN Saya</button></div>' +
+            (ui.profilPinDone ? '<p style="color:var(--green);font-weight:700;margin:.5rem 0 0">PIN berhasil diganti.</p>' : "");
+        } else {
+          html += '<form class="inline-form" data-form="profil-pin">' +
+            '<div class="grid2"><div><label class="lbl" for="ppin-lama">PIN lama</label>' +
+            '<input id="ppin-lama" type="password" inputmode="numeric" autocomplete="off" class="inp" value="' + esc(ui.profilPinLama || "") + '" data-bind="profilPinLama"></div>' +
+            '<div><label class="lbl" for="ppin-baru">PIN baru (4–6 angka)</label>' +
+            '<input id="ppin-baru" type="password" inputmode="numeric" autocomplete="off" class="inp" value="' + esc(ui.profilPinBaru || "") + '" data-bind="profilPinBaru"></div></div>' +
+            '<div style="margin-top:.75rem"><label class="lbl" for="ppin-conf">Konfirmasi PIN baru</label>' +
+            '<input id="ppin-conf" type="password" inputmode="numeric" autocomplete="off" class="inp" value="' + esc(ui.profilPinConf || "") + '" data-bind="profilPinConf"></div>' +
+            (ui.profilPinError ? '<p class="field-err">' + esc(ui.profilPinError) + "</p>" : "") +
+            '<div class="actions-row"><button type="submit" class="btn btn-primary">Simpan PIN baru</button>' +
+            '<button type="button" class="btn btn-ghost" data-act="profil-pin-close">Batal</button></div></form>';
+        }
+        html += "</div></section>";
+        html += '<section><h2 class="sec">Sesi</h2><div class="card" style="margin-top:.75rem;padding:1rem 1.25rem">' +
+          '<p class="sub" style="margin-top:0">Keluar dari akun ini dan kembali ke mode Warga (publik). Sesi di perangkat ini berakhir.</p>' +
+          '<div class="actions-row"><button type="button" class="btn btn-danger-ghost" data-act="logout">Keluar</button></div></div></section>';
+        html += "</div>";
+        return html;
+      }
+
       function viewDeploy() {
         var html = '<div class="stack-lg">';
         html += "<section><h2 class=\"sec\">Deploy ke Vercel — gratis</h2>" +
@@ -3586,6 +3667,12 @@
           ui.error = ""; ui.rtError = ""; ui.rtDone = "";
           render(); window.scrollTo(0, 0);
         }
+        else if (act === "profil-open") { state.tab = "profil"; ui.error = ""; render(); window.scrollTo(0, 0); }
+        else if (act === "profil-pin-open") {
+          ui.profilPinOpen = true; ui.profilPinLama = ""; ui.profilPinBaru = ""; ui.profilPinConf = "";
+          ui.profilPinError = ""; ui.profilPinDone = false; render();
+        }
+        else if (act === "profil-pin-close") { ui.profilPinOpen = false; ui.profilPinError = ""; render(); }
         else if (act === "login-open") { ui.loginOpen = true; ui.loginError = ""; ui.loginPin = ""; if (!state.pins.superadmin) { ui.serverLogin = true; ui.serverNoAccount = false; } render(); var ln = document.getElementById("login-nama") || document.getElementById("server-nama"); if (ln) ln.focus(); }
         else if (act === "login-close") { ui.loginOpen = false; ui.loginPin = ""; ui.loginError = ""; render(); }
         else if (act === "server-login-open") { ui.serverLogin = true; ui.serverError = ""; ui.serverPin = ""; ui.serverNoAccount = false; render(); var sn = document.getElementById("server-nama"); if (sn) sn.focus(); }
@@ -4163,6 +4250,24 @@
           up.pin = ui.userPinNew.trim();
           logAudit("PIN pengguna diubah: " + up.nama + " (" + ROLE_LABEL[up.peran] + ").");
           ui.userPinFor = null; ui.userPinNew = ""; ui.userPinConf = ""; ui.userPinError = ""; ui.userPinDone = true;
+          render();
+        }
+        else if (kind === "profil-pin") {
+          /* Ganti PIN sendiri lewat Profil Saya — hanya PIN akun yang sedang
+             masuk yang boleh berubah; PIN pengguna lain tidak tersentuh. */
+          var me = null;
+          if (state.userId != null) {
+            state.users.forEach(function (x) { if (String(x.id) === String(state.userId)) me = x; });
+          }
+          if (!me && state.role === "warga") { ui.profilPinError = "Masuk dulu untuk mengganti PIN."; render(); return; }
+          var pinKini = me ? String(me.pin || "") : String(state.pins[state.role] || "");
+          if ((ui.profilPinLama || "").trim() !== pinKini || pinKini === "") { ui.profilPinError = "PIN lama salah."; render(); return; }
+          if (!/^[0-9]{4,6}$/.test((ui.profilPinBaru || "").trim())) { ui.profilPinError = "PIN baru harus 4–6 angka."; render(); return; }
+          if ((ui.profilPinBaru || "").trim() !== (ui.profilPinConf || "").trim()) { ui.profilPinError = "Konfirmasi PIN tidak sama."; render(); return; }
+          if (pinSudahDipakai((ui.profilPinBaru || "").trim(), me ? me.id : null)) { ui.profilPinError = "PIN itu sudah dipakai akun lain — pakai PIN yang berbeda."; render(); return; }
+          if (me) { me.pin = (ui.profilPinBaru || "").trim(); logAudit("PIN sendiri diganti oleh " + me.nama + " (" + ROLE_LABEL[me.peran] + ") lewat Profil Saya."); }
+          else { state.pins[state.role] = (ui.profilPinBaru || "").trim(); logAudit("PIN peran " + ROLE_LABEL[state.role] + " diganti sendiri lewat Profil Saya."); }
+          ui.profilPinLama = ""; ui.profilPinBaru = ""; ui.profilPinConf = ""; ui.profilPinError = ""; ui.profilPinDone = true; ui.profilPinOpen = false;
           render();
         }
         else if (kind === "custom") {
