@@ -1603,7 +1603,7 @@
             (nCount > 0 ? '<span class="pill-count num">' + nCount + "</span>" : "") + "</button>";
         }
         if (state.role === "warga") {
-          html += '<button type="button" class="btn btn-primary" data-act="login-open">Masuk sebagai Pengurus</button>';
+          html += '<button type="button" class="btn btn-primary" data-act="login-open">Login</button>';
         } else {
           html += '<button type="button" class="btn btn-ghost" data-act="logout">Keluar → mode Warga</button>';
         }
@@ -2055,7 +2055,7 @@
         if (state.role === "warga") {
           return '<div class="lock-note"><h2 class="sec">Halaman khusus pengurus</h2>' +
             '<p class="sub">Pencatatan keliling hanya untuk Petugas, Bendahara, dan Super Admin yang sudah masuk dengan PIN. Sebagai warga, Anda bisa memantau hasilnya di Beranda dan tab Kas.</p>' +
-            '<div class="actions-row" style="justify-content:center"><button type="button" class="btn btn-primary" data-act="login-open">Masuk sebagai Pengurus</button></div></div>';
+            '<div class="actions-row" style="justify-content:center"><button type="button" class="btn btn-primary" data-act="login-open">Login</button></div></div>';
         }
         var canWrite = canCatat();
         var bendaharaPlus = isBendahara();
