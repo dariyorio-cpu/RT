@@ -598,7 +598,7 @@
         setTimeout(function () { URL.revokeObjectURL(url); }, 500);
       }
 
-      /* ================= State (di memori perangkat ini) ================= */
+      /* ================= State (tersimpan di perangkat ini) ================= */
       var state = {
         tab: "beranda",
         role: "warga",             /* warga (publik, hanya lihat) | petugas | bendahara | superadmin — peran pengurus terkunci PIN */
@@ -673,6 +673,59 @@
         eKas: "utama",
         houseArsipFor: null, houseArsipReason: ""
       };
+
+      /* ===== Penyimpanan perangkat: data, PIN, dan sesi masuk disimpan di browser
+         perangkat ini, jadi refresh / menutup lalu membuka lagi halaman TIDAK
+         mengulang penyiapan PIN dari awal. Sesi pengurus tetap aktif sampai
+         tombol Keluar ditekan. Bila penyimpanan browser tidak tersedia
+         (mode privat dsb.), aplikasi tetap berjalan dari memori seperti semula. ===== */
+      var LS_KEY = "sirt-rw-vercel-v1";
+      var LS_FIELDS = ["settings", "pins", "houses", "collections", "expenses", "warga", "iuran",
+        "aset", "surat", "pinjam", "aduan", "agenda", "umum", "umkm", "audit", "profil", "broadcast", "bayar"];
+      function simpanPerangkat() {
+        try {
+          var snap = { versi: 1, seq: state.seq, sesi: { role: state.role, nama: state.nama } };
+          LS_FIELDS.forEach(function (k) { snap[k] = state[k]; });
+          localStorage.setItem(LS_KEY, JSON.stringify(snap));
+        } catch (e) { /* penyimpanan tidak tersedia — lanjut dari memori */ }
+      }
+      function muatPerangkat() {
+        try {
+          var raw = localStorage.getItem(LS_KEY);
+          if (!raw) return;
+          var d = JSON.parse(raw);
+          if (!d || !Array.isArray(d.houses) || !Array.isArray(d.collections) || !Array.isArray(d.expenses) ||
+              !d.settings || typeof d.settings !== "object") return;
+          state.settings = {
+            namaRt: String(d.settings.namaRt || "RT Kami"),
+            wilayah: String(d.settings.wilayah || ""),
+            nominalBaku: Math.max(100, Number(d.settings.nominalBaku) || 500),
+            nominalIuran: Math.max(0, Number(d.settings.nominalIuran) || 20000),
+            saldoAwal: {
+              utama: Number((d.settings.saldoAwal || {}).utama) || 0,
+              proyek: Number((d.settings.saldoAwal || {}).proyek) || 0,
+              kematian: Number((d.settings.saldoAwal || {}).kematian) || 0
+            },
+            rtList: Array.isArray(d.settings.rtList) ? d.settings.rtList : [],
+            pengurus: Array.isArray(d.settings.pengurus) ? d.settings.pengurus : []
+          };
+          if (d.pins) {
+            ["petugas", "bendahara", "superadmin"].forEach(function (k) {
+              if (d.pins[k]) state.pins[k] = String(d.pins[k]);
+            });
+          }
+          state.houses = d.houses; state.collections = d.collections; state.expenses = d.expenses;
+          ["warga", "iuran", "aset", "surat", "pinjam", "aduan", "agenda", "umum", "umkm", "audit", "profil", "broadcast", "bayar"].forEach(function (k) {
+            state[k] = Array.isArray(d[k]) ? d[k] : [];
+          });
+          state.seq = Number(d.seq) || (state.houses.length + state.collections.length + state.expenses.length + 1);
+          /* Pulihkan sesi masuk hanya bila PIN peran itu memang ada di perangkat ini. */
+          if (d.sesi && state.pins[d.sesi.role]) {
+            state.role = d.sesi.role;
+            state.nama = String(d.sesi.nama || "");
+          }
+        } catch (e) { /* snapshot rusak/tidak terbaca — mulai dari keadaan awal */ }
+      }
 
       function nextId() { return state.seq++; }
       function houseById(id) {
@@ -968,6 +1021,7 @@
         });
         html += "</div></nav>";
         document.getElementById("app").innerHTML = html;
+        simpanPerangkat();
         afterRender();
       }
       function afterRender() {
@@ -3451,6 +3505,7 @@
         }
       });
 
+      muatPerangkat();
       render();
 </script>
   </body>
