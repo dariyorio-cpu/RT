@@ -642,6 +642,7 @@
         sNama: null, sWilayah: null, sNominal: null, sIuran: null, sError: "", sDone: false,
         eTgl: todayStr(), eKeperluan: "", eJumlah: "", eKet: "", eError: "",
         backupMsg: "",
+        cloudUrl: "", cloudToken: "", cloudMsg: "", cloudErr: "", cloudConfirm: false,
         rtSec: "warga",
         iuranBulan: monthStr(),
         rtError: "", rtDone: "",
@@ -714,6 +715,7 @@
           LS_FIELDS.forEach(function (k) { snap[k] = state[k]; });
           localStorage.setItem(LS_KEY, JSON.stringify(snap));
         } catch (e) { /* penyimpanan tidak tersedia — lanjut dari memori */ }
+        jadwalkanCloudSave();
       }
       function muatPerangkat() {
         /* 1) Pulihkan PIN + sesi lebih dulu dari kunci sesi tersendiri, supaya
@@ -772,6 +774,345 @@
             state.nama = String(d.sesi.nama || "");
           }
         } catch (e) { /* snapshot rusak/tidak terbaca — mulai dari keadaan awal */ }
+      }
+
+      /* ================= Sinkronisasi Cloud (Google Drive/Sheets) =================
+         Data bisa disinkronkan antarperangkat lewat Web App Google Apps Script:
+         seluruh state disimpan sebagai satu file JSON di Google Drive pemilik
+         dan dicerminkan ke Spreadsheet supaya bisa dibaca pengurus. Pengaturan
+         cloud (URL Web App, token, ID perangkat ini) disimpan LOKAL per
+         perangkat di kunci tersendiri dan TIDAK PERNAH ikut di dalam state
+         yang disinkronkan. localStorage tetap cadangan utama: bila cloud
+         gagal dihubungi (offline), aplikasi tetap berjalan dari data
+         perangkat dan menyinkronkan lagi nanti — galat cloud tidak pernah
+         menghapus data lokal. Konflik diselesaikan last-write-wins menurut
+         updatedAt: perangkat yang kalah mengunduh data cloud. */
+      var LS_CLOUD_KEY = "sirt-rw-cloud-v1";
+      var cloud = { url: "", token: "", deviceId: "", lastSyncAt: null, lastKnownUpdatedAt: null };
+      var cloudState = "belum";        /* belum | proses | tersinkron | offline | galat */
+      var cloudLastDevice = "";        /* deviceId perangkat terakhir yang mengubah data cloud */
+      var cloudTimer = null;           /* timer debounce simpan otomatis */
+      var cloudSaving = false;
+      var cloudBootPending = false;    /* selama unduh awal berjalan, unggah otomatis ditahan */
+      var cloudSuppressSave = false;   /* menerapkan data cloud tidak memicu unggah balik */
+      var cloudLastSentStr = null;     /* payload yang isinya sama persis dengan cloud terakhir diketahui */
+      var cloudPending = null;         /* jawaban load yang menunggu pilihan pengguna (modal) */
+
+      function cloudTerhubung() { return !!(cloud.url && cloud.token); }
+      function simpanCloudCfg() {
+        try { localStorage.setItem(LS_CLOUD_KEY, JSON.stringify(cloud)); } catch (e) { /* abaikan */ }
+      }
+      function muatCloudCfg() {
+        try {
+          var raw = localStorage.getItem(LS_CLOUD_KEY);
+          if (raw) {
+            var d = JSON.parse(raw);
+            if (d && typeof d === "object") {
+              cloud.url = String(d.url || "");
+              cloud.token = String(d.token || "");
+              cloud.deviceId = String(d.deviceId || "");
+              cloud.lastSyncAt = d.lastSyncAt || null;
+              cloud.lastKnownUpdatedAt = d.lastKnownUpdatedAt || null;
+            }
+          }
+        } catch (e) { /* pengaturan cloud rusak — mulai sebagai belum terhubung */ }
+        if (!cloud.deviceId) {
+          cloud.deviceId = "dev-" + Date.now().toString(36) + "-" + Math.floor(Math.random() * 1e9).toString(36);
+          simpanCloudCfg();
+        }
+        if (cloudTerhubung()) cloudState = cloud.lastSyncAt ? "tersinkron" : "belum";
+      }
+      /* Payload yang dikirim ke cloud: seluruh LS_FIELDS + seq — sama seperti
+         snapshot perangkat, TANPA sesi masuk dan TANPA pengaturan cloud. */
+      function cloudPayloadFrom(src) {
+        var p = { seq: Number(src.seq) || 1 };
+        LS_FIELDS.forEach(function (k) { p[k] = src[k]; });
+        return p;
+      }
+      function cloudPayload() { return cloudPayloadFrom(state); }
+      function cloudJumlahBaris() {
+        var n = 0;
+        LS_FIELDS.forEach(function (k) { if (Array.isArray(state[k])) n += state[k].length; });
+        return n;
+      }
+      function cloudAdaDataLokal() {
+        if (state.pins.petugas || state.pins.bendahara || state.pins.superadmin) return true;
+        return cloudJumlahBaris() > 0;
+      }
+      function cloudErrText(res) {
+        var e = res && res.error;
+        if (e === "unauthorized") return "Token ditolak server (unauthorized). Periksa kembali token yang diisi.";
+        if (e === "bad_state") return "Server menolak data yang dikirim (bad_state).";
+        if (e === "bad_updatedAt") return "Server menolak waktu simpan (bad_updatedAt).";
+        if (e === "busy") return "Server sedang sibuk (busy). Coba lagi sebentar.";
+        if (e === "server_error") return "Galat di server cloud" + (res && res.message ? ": " + res.message : "") + ".";
+        return "Tidak dapat menghubungi server cloud.";
+      }
+      function cloudGet(action) {
+        var sep = cloud.url.indexOf("?") >= 0 ? "&" : "?";
+        return fetch(cloud.url + sep + "action=" + action + "&token=" + encodeURIComponent(cloud.token), { method: "GET" })
+          .then(function (r) { return r.json(); });
+      }
+      function fmtJam(iso) {
+        if (!iso) return "";
+        var d = new Date(iso);
+        if (isNaN(d.getTime())) return "";
+        return d.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
+      }
+      function cloudPillText() {
+        if (!cloudTerhubung()) return "Cloud: Belum terhubung";
+        if (cloudState === "offline") return "Cloud: Offline";
+        if (cloudState === "proses") return "Cloud: Menyinkron…";
+        if (cloud.lastSyncAt) return "Cloud: Tersinkron " + fmtJam(cloud.lastSyncAt);
+        return "Cloud: Terhubung";
+      }
+      function cloudPillTone() {
+        if (!cloudTerhubung()) return "badge-gray";
+        if (cloudState === "offline" || cloudState === "galat") return "badge-amber";
+        return "badge-green";
+      }
+      /* Terapkan state dari cloud ke perangkat ini. Sesi masuk (peran + nama)
+         perangkat ini dipertahankan apa adanya. PIN mengikuti cloud bila
+         cloud punya PIN; PIN lokal dipertahankan bila cloud kosong. */
+      function terapkanStateCloud(cs) {
+        if (!cs || !Array.isArray(cs.houses) || !Array.isArray(cs.collections) || !Array.isArray(cs.expenses) ||
+            !cs.settings || typeof cs.settings !== "object") return false;
+        var keepRole = state.role, keepNama = state.nama;
+        state.settings = {
+          namaRt: String(cs.settings.namaRt || "RT Kami"),
+          wilayah: String(cs.settings.wilayah || ""),
+          nominalBaku: Math.max(100, Number(cs.settings.nominalBaku) || 500),
+          nominalIuran: Math.max(0, Number(cs.settings.nominalIuran) || 20000),
+          saldoAwal: {
+            utama: Number((cs.settings.saldoAwal || {}).utama) || 0,
+            proyek: Number((cs.settings.saldoAwal || {}).proyek) || 0,
+            kematian: Number((cs.settings.saldoAwal || {}).kematian) || 0
+          },
+          rtList: Array.isArray(cs.settings.rtList) ? cs.settings.rtList : [],
+          pengurus: Array.isArray(cs.settings.pengurus) ? cs.settings.pengurus : []
+        };
+        LS_FIELDS.forEach(function (k) {
+          if (k === "settings" || k === "pins") return;
+          state[k] = Array.isArray(cs[k]) ? cs[k] : [];
+        });
+        if (cs.pins) {
+          ["petugas", "bendahara", "superadmin"].forEach(function (k) {
+            if (cs.pins[k]) state.pins[k] = String(cs.pins[k]);
+          });
+        }
+        state.seq = Number(cs.seq) || (state.houses.length + state.collections.length + state.expenses.length + 1);
+        state.role = keepRole; state.nama = keepNama;
+        cloudSuppressSave = true;
+        simpanPerangkat();
+        cloudSuppressSave = false;
+        cloudLastSentStr = JSON.stringify(cloudPayload());
+        return true;
+      }
+      /* Unduh dari cloud. Tanpa paksa: hanya diterapkan bila updatedAt cloud
+         lebih baru dari yang terakhir diketahui perangkat ini. */
+      function cloudLoad(opts) {
+        opts = opts || {};
+        if (!cloudTerhubung()) return Promise.resolve(false);
+        cloudState = "proses";
+        return cloudGet("load").then(function (res) {
+          cloudBootPending = false;
+          if (!res || !res.ok) {
+            cloudState = "galat"; ui.cloudErr = cloudErrText(res); ui.cloudMsg = "";
+            render(); return false;
+          }
+          if (res.deviceId) cloudLastDevice = String(res.deviceId);
+          if (!res.exists) {
+            cloudState = "tersinkron";
+            cloud.lastSyncAt = new Date().toISOString(); simpanCloudCfg();
+            ui.cloudMsg = "Cloud masih kosong — belum ada data tersimpan di Google Drive.";
+            ui.cloudErr = ""; render(); return false;
+          }
+          cloudLastSentStr = JSON.stringify(cloudPayloadFrom(res.state));
+          var lebihBaru = !!res.updatedAt && res.updatedAt > String(cloud.lastKnownUpdatedAt || "");
+          if (lebihBaru || opts.force) {
+            if (terapkanStateCloud(res.state)) {
+              cloud.lastKnownUpdatedAt = res.updatedAt;
+              cloud.lastSyncAt = new Date().toISOString(); simpanCloudCfg();
+              cloudState = "tersinkron";
+              ui.cloudMsg = "Data cloud lebih baru — sudah diunduh dan diterapkan ke perangkat ini.";
+              ui.cloudErr = ""; render(); return true;
+            }
+            cloudState = "galat";
+            ui.cloudErr = "Data dari cloud tidak valid — data perangkat ini tidak diubah.";
+            ui.cloudMsg = ""; render(); return false;
+          }
+          cloud.lastKnownUpdatedAt = res.updatedAt;
+          cloud.lastSyncAt = new Date().toISOString(); simpanCloudCfg();
+          cloudState = "tersinkron";
+          if (opts.manual) {
+            ui.cloudMsg = "Data perangkat ini sudah sama dengan cloud — tidak ada yang lebih baru untuk diunduh.";
+            ui.cloudErr = "";
+          }
+          render(); return false;
+        }).catch(function () {
+          cloudBootPending = false;
+          cloudState = "offline";
+          ui.cloudMsg = "Offline — data tersimpan di perangkat, akan disinkronkan nanti.";
+          render(); return false;
+        });
+      }
+      /* Unggah state perangkat ini ke cloud. Bila server menjawab conflict
+         (data cloud lebih baru), perangkat ini mengunduh data cloud —
+         bukan menimpanya. */
+      function cloudSave() {
+        if (!cloudTerhubung() || cloudSaving) return Promise.resolve(false);
+        cloudSaving = true; cloudState = "proses";
+        var payload = cloudPayload();
+        var body = {
+          token: cloud.token, action: "save",
+          updatedAt: new Date().toISOString(), deviceId: cloud.deviceId, state: payload
+        };
+        return fetch(cloud.url, {
+          method: "POST", headers: { "Content-Type": "text/plain" }, body: JSON.stringify(body)
+        }).then(function (r) { return r.json(); }).then(function (res) {
+          cloudSaving = false;
+          if (res && res.ok) {
+            cloud.lastKnownUpdatedAt = res.updatedAt || body.updatedAt;
+            cloud.lastSyncAt = new Date().toISOString(); simpanCloudCfg();
+            cloudLastSentStr = JSON.stringify(payload);
+            cloudLastDevice = cloud.deviceId;
+            cloudState = "tersinkron";
+            ui.cloudMsg = "Data perangkat ini tersimpan di cloud (Google Drive).";
+            ui.cloudErr = ""; render(); return true;
+          }
+          if (res && res.error === "conflict") {
+            ui.cloudMsg = "Data cloud lebih baru — diunduh.";
+            ui.cloudErr = "";
+            return cloudLoad({ force: true }).then(function (applied) {
+              if (applied) { ui.cloudMsg = "Data cloud lebih baru — diunduh."; render(); }
+              return false;
+            });
+          }
+          cloudState = "galat"; ui.cloudErr = cloudErrText(res); ui.cloudMsg = "";
+          render(); return false;
+        }).catch(function () {
+          cloudSaving = false;
+          cloudState = "offline";
+          ui.cloudMsg = "Offline — data tersimpan di perangkat, akan disinkronkan nanti.";
+          render(); return false;
+        });
+      }
+      /* Simpan otomatis: dipanggil dari simpanPerangkat() setiap data berubah,
+         di-debounce 3 detik, dan dilewati bila isi data sama persis dengan
+         yang terakhir tersimpan di cloud. */
+      function jadwalkanCloudSave() {
+        if (!cloudTerhubung() || cloudSuppressSave || cloudBootPending) return;
+        if (JSON.stringify(cloudPayload()) === cloudLastSentStr) return;
+        if (cloudTimer) clearTimeout(cloudTimer);
+        cloudTimer = setTimeout(function () { cloudTimer = null; cloudSave(); }, 3000);
+      }
+      /* Hubungkan pertama kali: uji ping, lalu periksa isi cloud. Bila cloud
+         kosong → arahkan unggah. Bila cloud berisi dan perangkat ini juga
+         berisi data yang berbeda → pengguna memilih lewat modal dalam
+         halaman (dialog konfirmasi bawaan browser tidak berfungsi di dalam
+         bingkai aplikasi ini). Bila perangkat ini kosong → langsung unduh. */
+      function cloudHubungkan() {
+        var url = (ui.cloudUrl || "").trim();
+        var token = (ui.cloudToken || "").trim();
+        if (!url || !token) {
+          ui.cloudErr = "Isi dulu URL Web App dan Token-nya."; ui.cloudMsg = ""; render(); return;
+        }
+        cloud.url = url; cloud.token = token; simpanCloudCfg();
+        ui.cloudErr = ""; ui.cloudMsg = "Menghubungi server cloud…"; cloudState = "proses"; render();
+        cloudGet("ping").then(function (res) {
+          if (!res || !res.ok) {
+            cloudState = "galat"; ui.cloudErr = cloudErrText(res); ui.cloudMsg = ""; render(); return;
+          }
+          ui.cloudMsg = "Koneksi berhasil (" + (res.service || "si-rt-rw-sync") + "). Memeriksa data cloud…";
+          render();
+          cloudGet("load").then(function (lr) {
+            if (!lr || !lr.ok) {
+              cloudState = "galat"; ui.cloudErr = cloudErrText(lr); ui.cloudMsg = ""; render(); return;
+            }
+            if (lr.deviceId) cloudLastDevice = String(lr.deviceId);
+            if (!lr.exists) {
+              cloudState = "tersinkron";
+              cloud.lastSyncAt = new Date().toISOString(); simpanCloudCfg();
+              ui.cloudMsg = "Terhubung. Cloud masih kosong — tekan \u201CUnggah Data Perangkat Ini ke Cloud\u201D untuk menyimpan data perangkat ini ke Google Drive.";
+              ui.cloudErr = ""; render(); return;
+            }
+            cloudLastSentStr = JSON.stringify(cloudPayloadFrom(lr.state));
+            if (lr.updatedAt && lr.updatedAt === String(cloud.lastKnownUpdatedAt || "")) {
+              cloudState = "tersinkron";
+              cloud.lastSyncAt = new Date().toISOString(); simpanCloudCfg();
+              ui.cloudMsg = "Terhubung — data perangkat ini sudah sama dengan data cloud.";
+              ui.cloudErr = ""; render(); return;
+            }
+            if (cloudAdaDataLokal()) {
+              cloudPending = lr; ui.cloudConfirm = true;
+              ui.cloudMsg = ""; ui.cloudErr = ""; render(); return;
+            }
+            cloud.lastKnownUpdatedAt = lr.updatedAt;
+            if (terapkanStateCloud(lr.state)) {
+              cloud.lastSyncAt = new Date().toISOString(); simpanCloudCfg();
+              cloudState = "tersinkron";
+              ui.cloudMsg = "Terhubung — data dari cloud sudah diunduh ke perangkat ini.";
+              ui.cloudErr = "";
+            } else {
+              cloudState = "galat";
+              ui.cloudErr = "Data dari cloud tidak valid — data perangkat ini tidak diubah.";
+              ui.cloudMsg = "";
+            }
+            render();
+          }).catch(function () {
+            cloudState = "offline"; ui.cloudErr = "";
+            ui.cloudMsg = "Offline — tidak dapat memeriksa data cloud. Data perangkat tetap aman.";
+            render();
+          });
+        }).catch(function () {
+          cloudState = "offline"; ui.cloudErr = "";
+          ui.cloudMsg = "Offline — tidak dapat menghubungi server cloud. Periksa koneksi internet lalu coba lagi.";
+          render();
+        });
+      }
+      function viewCloudSync() {
+        var terhubung = cloudTerhubung();
+        var statusTeks = !terhubung ? "Belum terhubung"
+          : cloudState === "offline" ? "Offline — data tersimpan di perangkat, akan disinkronkan nanti"
+          : cloudState === "proses" ? "Sedang menyinkronkan…"
+          : cloudState === "galat" ? "Terhubung — sinkron terakhir bermasalah, lihat pesan di bawah"
+          : "Terhubung";
+        return '<section class="card"><h2 class="sec">Sinkronisasi Cloud (Google Drive)</h2>' +
+          '<p class="sub">Hubungkan aplikasi ini ke Web App Google Apps Script milik RT: seluruh data tersimpan sebagai file JSON di Google Drive dan dicerminkan ke Spreadsheet, sehingga data yang sama bisa dipakai bergantian di banyak perangkat. URL dan token hanya disimpan di perangkat ini, tidak ikut tersinkron. Data juga tetap tersimpan lokal sebagai cadangan — saat offline aplikasi tetap berjalan dan menyinkronkan lagi begitu online. Setiap perubahan data terunggah otomatis beberapa detik setelah disimpan.</p>' +
+          '<div class="grid2" style="margin-top:.75rem">' +
+          '<div><label class="lbl" for="cloud-url">URL Web App (Apps Script)</label>' +
+          '<input id="cloud-url" type="url" class="inp" placeholder="https://script.google.com/macros/s/…/exec" value="' + esc(ui.cloudUrl || "") + '" data-bind="cloudUrl"></div>' +
+          '<div><label class="lbl" for="cloud-token">Token sinkronisasi</label>' +
+          '<input id="cloud-token" type="password" autocomplete="off" class="inp" placeholder="token dari file Code.gs" value="' + esc(ui.cloudToken || "") + '" data-bind="cloudToken"></div></div>' +
+          '<div class="list" style="margin-top:.75rem">' +
+          '<div class="row-item"><div><p class="t">Status koneksi</p><p class="s">' + esc(statusTeks) + '</p></div></div>' +
+          '<div class="row-item"><div><p class="t">Terakhir sinkron</p><p class="s">' +
+            (cloud.lastSyncAt ? esc(new Date(cloud.lastSyncAt).toLocaleString("id-ID")) : "Belum pernah") + '</p></div></div>' +
+          '<div class="row-item"><div><p class="t">Perangkat terakhir mengubah</p><p class="s">' +
+            (cloudLastDevice ? esc(cloudLastDevice) + (cloudLastDevice === cloud.deviceId ? " (perangkat ini)" : "") : "—") + '</p></div></div>' +
+          '<div class="row-item"><div><p class="t">Jumlah baris data perangkat ini</p><p class="s num">' +
+            cloudJumlahBaris() + " baris dari " + LS_FIELDS.length + ' daftar data</p></div></div>' +
+          "</div>" +
+          (ui.cloudErr ? '<p class="field-err">' + esc(ui.cloudErr) + "</p>" : "") +
+          (ui.cloudMsg ? '<p class="ok-note">' + esc(ui.cloudMsg) + "</p>" : "") +
+          '<div class="actions-row">' +
+          '<button type="button" class="btn btn-primary" data-act="cloud-connect">Hubungkan &amp; Uji Koneksi</button>' +
+          '<button type="button" class="btn btn-ghost" data-act="cloud-upload">Unggah Data Perangkat Ini ke Cloud</button>' +
+          '<button type="button" class="btn btn-ghost" data-act="cloud-download">Unduh Data dari Cloud</button>' +
+          (terhubung ? '<button type="button" class="btn btn-danger-ghost" data-act="cloud-disconnect">Putuskan Cloud</button>' : "") +
+          "</div></section>";
+      }
+      function viewCloudConfirm() {
+        return '<div class="modal-overlay"><div class="modal-card">' +
+          '<h2 class="sec">Data cloud dan data perangkat ini berbeda</h2>' +
+          '<p class="sub">Di Google Drive sudah tersimpan data' +
+            (cloudLastDevice ? " (terakhir diubah oleh perangkat " + esc(cloudLastDevice) + ")" : "") +
+            ", dan perangkat ini juga berisi data. Pilih data mana yang dipakai — data yang tidak dipilih akan tertimpa:</p>" +
+          '<div class="actions-row" style="flex-direction:column;align-items:stretch">' +
+          '<button type="button" class="btn btn-primary" data-act="cloud-confirm-cloud">Pakai data cloud (timpa perangkat ini)</button>' +
+          '<button type="button" class="btn btn-ghost" data-act="cloud-confirm-local">Pakai data perangkat ini (timpa cloud)</button>' +
+          '<button type="button" class="btn btn-ghost" data-act="cloud-confirm-close">Nanti saja</button>' +
+          "</div></div></div>";
       }
 
       function nextId() { return state.seq++; }
@@ -1000,6 +1341,7 @@
         html += '</div></div><div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap">';
         html += '<span class="role-badge ' + state.role + '">' + esc(ROLE_LABEL[state.role]) +
           (isPengurus() && state.nama.trim() ? " · " + esc(state.nama.trim()) : "") + "</span>";
+        html += '<span class="badge ' + cloudPillTone() + '">' + esc(cloudPillText()) + "</span>";
         if (isPengurus()) {
           var nCount = notifItems().length;
           html += '<button type="button" class="bell-btn" data-act="notif-toggle" aria-label="Notifikasi pengurus">' +
@@ -1059,6 +1401,7 @@
         else if (state.tab === "admin") html += viewAdmin();
         html += "</div></div></div></main>";
         if (ui.loginOpen) html += viewLogin();
+        if (ui.cloudConfirm) html += viewCloudConfirm();
         html += '<nav class="tabs-mobile" aria-label="Menu utama"><div class="grid" style="grid-template-columns:repeat(' + tabs.length + ',1fr)">';
         tabs.forEach(function (t) {
           html += '<button type="button" data-act="tab" data-tab="' + t.id + '"' +
@@ -2451,6 +2794,7 @@
           statCard("Saldo kas", rp(d.saldo)) +
           "</div></section>";
         html += viewPengaturan();
+        html += viewCloudSync();
         /* Ganti PIN */
         html += '<form class="card" data-form="pins"><h2 class="sec">PIN &amp; akses peran</h2>' +
           '<p class="sub">PIN dipakai pengurus untuk masuk dari tautan publik yang sama. PIN dibuat saat penyiapan pertama dan hanya Super Admin yang bisa menggantinya di sini. Berikan tiap PIN hanya kepada pemegang perannya. Kosongkan kolom yang tidak diubah.</p>' +
@@ -2991,6 +3335,49 @@
             }
           });
           ui.rtDone = "Aset ditandai sudah kembali."; render();
+        }
+        else if (act === "cloud-connect") { if (!isSuper()) return; cloudHubungkan(); }
+        else if (act === "cloud-upload") {
+          if (!isSuper()) return;
+          if (!cloudTerhubung()) { ui.cloudErr = "Belum terhubung ke cloud. Isi URL & token lalu tekan Hubungkan & Uji Koneksi."; ui.cloudMsg = ""; render(); return; }
+          ui.cloudErr = ""; cloudSave();
+        }
+        else if (act === "cloud-download") {
+          if (!isSuper()) return;
+          if (!cloudTerhubung()) { ui.cloudErr = "Belum terhubung ke cloud. Isi URL & token lalu tekan Hubungkan & Uji Koneksi."; ui.cloudMsg = ""; render(); return; }
+          ui.cloudErr = ""; cloudLoad({ force: true, manual: true });
+        }
+        else if (act === "cloud-disconnect") {
+          if (!isSuper()) return;
+          cloud.url = ""; cloud.token = "";
+          cloud.lastSyncAt = null; cloud.lastKnownUpdatedAt = null;
+          cloudState = "belum"; cloudLastDevice = ""; cloudLastSentStr = null; cloudPending = null;
+          if (cloudTimer) { clearTimeout(cloudTimer); cloudTimer = null; }
+          ui.cloudUrl = ""; ui.cloudToken = ""; ui.cloudErr = "";
+          ui.cloudMsg = "Cloud diputuskan di perangkat ini. Data lokal tidak berubah; data yang sudah ada di Google Drive tetap tersimpan.";
+          simpanCloudCfg(); render();
+        }
+        else if (act === "cloud-confirm-cloud") {
+          var lrC = cloudPending;
+          ui.cloudConfirm = false; cloudPending = null;
+          if (lrC && terapkanStateCloud(lrC.state)) {
+            cloud.lastKnownUpdatedAt = lrC.updatedAt;
+            cloud.lastSyncAt = new Date().toISOString(); simpanCloudCfg();
+            cloudState = "tersinkron";
+            ui.cloudMsg = "Data cloud dipakai — perangkat ini sekarang memakai data dari Google Drive.";
+            ui.cloudErr = "";
+          }
+          render();
+        }
+        else if (act === "cloud-confirm-local") {
+          ui.cloudConfirm = false; cloudPending = null;
+          ui.cloudMsg = "Mengunggah data perangkat ini ke cloud…"; ui.cloudErr = "";
+          render(); cloudSave();
+        }
+        else if (act === "cloud-confirm-close") {
+          ui.cloudConfirm = false; cloudPending = null;
+          ui.cloudMsg = "Sinkronisasi ditunda — bila siap, pakai tombol Unggah/Unduh di bagian Sinkronisasi Cloud.";
+          render();
         }
         else if (act === "dl-vercel") { downloadFile("vercel.json", VERCEL_JSON, "application/json;charset=utf-8"); }
         else if (act === "dl-readme") { downloadFile("README-DEPLOY.md", readmeDeploy(), "text/markdown;charset=utf-8"); }
@@ -3555,7 +3942,16 @@
       });
 
       muatPerangkat();
+      muatCloudCfg();
+      ui.cloudUrl = cloud.url;
+      ui.cloudToken = cloud.token;
+      /* Selama unduh awal dari cloud berjalan, unggah otomatis ditahan supaya
+         data lokal lama tidak menimpa data cloud yang lebih baru. */
+      if (cloudTerhubung()) cloudBootPending = true;
       render();
+      /* Sinkron awal: unduh data cloud yang lebih baru tanpa memblokir UI.
+         Bila gagal (offline), aplikasi tetap berjalan dari localStorage. */
+      if (cloudTerhubung()) cloudLoad();
 </script>
   </body>
 </html>
