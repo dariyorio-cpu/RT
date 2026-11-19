@@ -96,7 +96,7 @@
       header.top {
         position: sticky; top: 0; z-index: 30;
         background: var(--surface);
-        border-bottom: 1px solid var(--border);
+        border-bottom: 1px solid rgba(217, 168, 63, 0.35);
         box-shadow: 0 1px 0 rgba(9, 38, 27, 0.03), 0 8px 24px rgba(9, 38, 27, 0.05);
         padding-top: env(safe-area-inset-top);
       }
@@ -114,7 +114,11 @@
       }
       .brand-mark svg { width: 22px; height: 22px; }
       .app-name { font-size: 1.0625rem; font-weight: 800; letter-spacing: -0.01em; line-height: 1.25; margin: 0; color: var(--accent-ink); }
-      .app-sub { font-size: 0.75rem; color: var(--dim); margin: 0; }
+      /* Header publik ringkas: tanpa baris subjudul nominal; di HP tombol
+         masuk selebar baris supaya mudah dijangkau. */
+      @media (max-width: 640px) {
+        .top-row .btn-primary[data-act="login-open"] { flex: 1 1 100%; justify-content: center; }
+      }
       .role-note { font-size: 0.75rem; color: var(--dim); margin: 0; padding-bottom: 0.5rem; }
       .role-group {
         display: flex; border: 1px solid var(--border); border-radius: 0.625rem;
@@ -138,7 +142,7 @@
       nav.tabs-desktop button:hover { background: var(--accent-soft); color: var(--accent-ink); }
       nav.tabs-desktop button[aria-current="page"] { background: var(--accent); color: var(--accent-text); box-shadow: 0 4px 10px rgba(7, 68, 51, 0.25); }
       /* Bilah navigasi atas tampilan publik (Warga): tautan jangkar ke bagian Beranda. */
-      .public-nav { display: flex; gap: 0.375rem; overflow-x: auto; padding: 0.25rem 0 0.625rem; scrollbar-width: none; }
+      .public-nav { display: flex; gap: 0.5rem; overflow-x: auto; padding: 0.375rem 0 0.625rem; scrollbar-width: none; }
       .public-nav::-webkit-scrollbar { display: none; }
       .public-nav a {
         flex: none; padding: 0.375rem 0.875rem; border-radius: 999px;
@@ -318,8 +322,8 @@
         background: linear-gradient(140deg, #0d7a5a 0%, #0a5c46 45%, #052e22 100%);
         color: #fff;
         border: 1px solid rgba(217, 168, 63, 0.35);
-        border-radius: 1.25rem; padding: 2rem 1.25rem; text-align: center;
-        box-shadow: var(--shadow-lg);
+        border-radius: 1.5rem; padding: 2rem 1.25rem; text-align: center;
+        box-shadow: 0 24px 48px rgba(4, 28, 19, 0.28);
       }
       @media (min-width: 768px) { .hero { padding: 3rem 2.5rem; } }
       .hero .kicker {
@@ -331,6 +335,10 @@
       .hero h1 {
         font-size: 1.75rem; font-weight: 800; letter-spacing: -0.02em; line-height: 1.2;
         margin: 1rem auto 0; max-width: 42rem;
+      }
+      .hero h1::after {
+        content: ""; display: block; width: 3rem; height: 0.2rem; margin: 0.875rem auto 0;
+        border-radius: 999px; background: linear-gradient(90deg, var(--gold), var(--gold-bright));
       }
       @media (min-width: 768px) { .hero h1 { font-size: 2.5rem; } }
       .hero .lead { font-size: 1rem; opacity: 0.92; margin: 0.75rem auto 0; max-width: 36rem; }
@@ -1557,13 +1565,11 @@
               ? "Anda masuk sebagai Admin: mengelola data rumah dan seluruh modul RT/RW seperti Bendahara — mencatat & memverifikasi setoran, kas, dan ceklis iuran. Users, Pengaturan, dan PIN khusus Super Admin. Sesi tersimpan di perangkat ini — refresh tidak perlu memasukkan PIN lagi; akhiri lewat tombol Keluar."
               : state.role === "superadmin"
               ? "Anda masuk sebagai Super Admin: mengelola SELURUH sistem — semua data, pengaturan RT, PIN semua peran, audit log, cadangan data, dan deploy. Sesi tersimpan di perangkat ini — refresh tidak perlu memasukkan PIN lagi; gunakan tombol Keluar setelah selesai."
-              : "Mode Warga (publik): siapa pun yang membuka tautan ini hanya bisa MELIHAT transparansi kas, pengumuman, agenda, dan UMKM — plus mengajukan surat & pengaduan atas namanya sendiri, dan masuk ke menu Iuran Saya (nama kepala keluarga + nomor HP terdaftar) untuk mengecek tunggakan & membayar iuran KK-nya sendiri. Semua tombol ubah/hapus/verifikasi disembunyikan dan terkunci. Pengurus masuk dengan PIN lewat tombol di kanan atas.";
+              : ""; /* Beranda publik tanpa paragraf penjelasan — hapus seluruhnya. */
         var html = "";
         html += '<header class="top"><div class="wrap">';
         html += '<div class="top-row"><div class="brand"><span class="brand-mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 21h18"/><path d="M5 21V7l7-4 7 4v14"/><path d="M9 21v-6h6v6"/></svg></span><div>';
         html += '<p class="app-name">SI-RT/RW Digital · ' + esc(s.namaRt) + ' <span class="badge badge-amber">Versi Vercel</span></p>';
-        html += '<p class="app-sub">' + (s.wilayah ? esc(s.wilayah) + " · " : "") +
-          "Jimpitan " + rp(s.nominalBaku) + " per rumah per hari · Iuran " + rp(s.nominalIuran || 20000) + " per KK per bulan</p>";
         html += '</div></div><div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap">';
         html += '<span class="role-badge ' + state.role + '">' + esc(ROLE_LABEL[state.role]) +
           (isPengurus() && state.nama.trim() ? " · " + esc(state.nama.trim()) : "") + "</span>";
@@ -1580,7 +1586,7 @@
           html += '<button type="button" class="btn btn-ghost" data-act="logout">Keluar → mode Warga</button>';
         }
         html += "</div></div>";
-        html += '<p class="role-note">' + roleNote + "</p>";
+        if (roleNote) html += '<p class="role-note">' + roleNote + "</p>";
         if (state.role === "warga" && state.tab === "beranda") {
           html += '<nav class="public-nav" aria-label="Navigasi halaman">' +
             '<a href="#bagian-beranda">Beranda</a>' +
@@ -1792,8 +1798,7 @@
         html += '<section class="hero" id="bagian-beranda"><p class="kicker">Sistem Informasi RT/RW Digital</p>' +
           "<h1>Bersama Warga, Membangun Lingkungan yang Nyaman dan Harmonis</h1>" +
           '<p class="lead">Selamat datang di portal digital ' + esc(s.namaRt) +
-          (s.wilayah ? " · " + esc(s.wilayah) : "") +
-          ". Pantau jimpitan harian, iuran, kas RT, pengumuman, agenda, dan UMKM warga — semua terbuka untuk warga.</p>" +
+          (s.wilayah ? " · " + esc(s.wilayah) : "") + ".</p>" +
           '<div class="cta">';
         if (state.role !== "warga") {
           html += '<button type="button" class="btn btn-light" data-act="tab" data-tab="keliling">Mulai Keliling Jimpitan</button>';
