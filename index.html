@@ -680,9 +680,35 @@
          tombol Keluar ditekan. Bila penyimpanan browser tidak tersedia
          (mode privat dsb.), aplikasi tetap berjalan dari memori seperti semula. ===== */
       var LS_KEY = "sirt-rw-vercel-v1";
+      var LS_SESI_KEY = "sirt-rw-sesi-v1";
       var LS_FIELDS = ["settings", "pins", "houses", "collections", "expenses", "warga", "iuran",
         "aset", "surat", "pinjam", "aduan", "agenda", "umum", "umkm", "audit", "profil", "broadcast", "bayar"];
+      /* Uji sekali di awal: apakah browser mengizinkan penyimpanan persisten?
+         Mode privat/incognito ("Samaran") dan browser yang memblokir penyimpanan
+         membuat localStorage gagal/terhapus saat jendela ditutup — dalam kondisi
+         itu sesi memang tidak bisa bertahan, dan pengguna diberi tahu alasannya
+         di jendela masuk, bukan diam-diam diminta PIN lagi. */
+      var storageOk = (function () {
+        try {
+          localStorage.setItem("__sirt_uji__", "1");
+          localStorage.removeItem("__sirt_uji__");
+          return true;
+        } catch (e) { return false; }
+      })();
+      /* PIN + sesi masuk disimpan di kunci KECIL tersendiri, terpisah dari
+         snapshot data besar. Snapshot data bisa gagal ditulis (mis. kuota
+         penuh oleh foto pengurus) atau rusak — PIN dan sesi tidak boleh ikut
+         hilang karenanya. Kunci ini ditulis ulang di setiap render, termasuk
+         tepat setelah penyiapan PIN, login, ganti PIN, dan logout. */
+      function simpanSesi() {
+        try {
+          localStorage.setItem(LS_SESI_KEY, JSON.stringify({
+            pins: state.pins, sesi: { role: state.role, nama: state.nama }
+          }));
+        } catch (e) { /* penyimpanan tidak tersedia — sesi hanya di memori */ }
+      }
       function simpanPerangkat() {
+        simpanSesi();
         try {
           var snap = { versi: 1, seq: state.seq, sesi: { role: state.role, nama: state.nama } };
           LS_FIELDS.forEach(function (k) { snap[k] = state[k]; });
@@ -690,6 +716,25 @@
         } catch (e) { /* penyimpanan tidak tersedia — lanjut dari memori */ }
       }
       function muatPerangkat() {
+        /* 1) Pulihkan PIN + sesi lebih dulu dari kunci sesi tersendiri, supaya
+           snapshot data yang rusak/terlalu besar tidak menghanguskan PIN. */
+        try {
+          var rawS = localStorage.getItem(LS_SESI_KEY);
+          if (rawS) {
+            var ds = JSON.parse(rawS);
+            if (ds && ds.pins) {
+              ["petugas", "bendahara", "superadmin"].forEach(function (k) {
+                if (ds.pins[k]) state.pins[k] = String(ds.pins[k]);
+              });
+            }
+            if (ds && ds.sesi && ds.sesi.role && ds.sesi.role !== "warga" && state.pins[ds.sesi.role]) {
+              state.role = ds.sesi.role;
+              state.nama = String(ds.sesi.nama || "");
+            }
+          }
+        } catch (e) { /* kunci sesi tidak terbaca — lanjut ke snapshot data */ }
+        /* 2) Baru muat snapshot data besar (PIN/sesi di dalamnya hanya jadi
+           cadangan bila kunci sesi belum ada). */
         try {
           var raw = localStorage.getItem(LS_KEY);
           if (!raw) return;
@@ -719,8 +764,10 @@
             state[k] = Array.isArray(d[k]) ? d[k] : [];
           });
           state.seq = Number(d.seq) || (state.houses.length + state.collections.length + state.expenses.length + 1);
-          /* Pulihkan sesi masuk hanya bila PIN peran itu memang ada di perangkat ini. */
-          if (d.sesi && state.pins[d.sesi.role]) {
+          /* Pulihkan sesi dari snapshot hanya bila kunci sesi tersendiri belum
+             memulihkan sesi apa pun, dan hanya bila PIN peran itu memang ada
+             di perangkat ini. */
+          if (state.role === "warga" && d.sesi && state.pins[d.sesi.role]) {
             state.role = d.sesi.role;
             state.nama = String(d.sesi.nama || "");
           }
@@ -938,11 +985,11 @@
         if (!canTab(state.tab)) state.tab = "beranda";
         var tabs = visibleTabs();
         var roleNote = state.role === "petugas"
-          ? "Anda masuk sebagai Petugas: hanya mencatat setoran jimpitan saat keliling. Verifikasi, kas keluar, data rumah, dan modul RT/RW tidak bisa diubah dari peran ini."
+          ? "Anda masuk sebagai Petugas: hanya mencatat setoran jimpitan saat keliling. Verifikasi, kas keluar, data rumah, dan modul RT/RW tidak bisa diubah dari peran ini. Sesi tersimpan di perangkat ini — refresh tidak perlu memasukkan PIN lagi; akhiri lewat tombol Keluar."
           : state.role === "bendahara"
-            ? "Anda masuk sebagai Bendahara: memverifikasi setoran, mencatat pengeluaran, mengelola data rumah dan seluruh modul RT/RW. Pengaturan sistem, PIN, cadangan, dan deploy khusus Super Admin."
+            ? "Anda masuk sebagai Bendahara: memverifikasi setoran, mencatat pengeluaran, mengelola data rumah dan seluruh modul RT/RW. Pengaturan sistem, PIN, cadangan, dan deploy khusus Super Admin. Sesi tersimpan di perangkat ini — refresh tidak perlu memasukkan PIN lagi; akhiri lewat tombol Keluar."
             : state.role === "superadmin"
-              ? "Anda masuk sebagai Super Admin: mengelola SELURUH sistem — semua data, pengaturan RT, PIN semua peran, audit log, cadangan data, dan deploy. Gunakan tombol Keluar setelah selesai."
+              ? "Anda masuk sebagai Super Admin: mengelola SELURUH sistem — semua data, pengaturan RT, PIN semua peran, audit log, cadangan data, dan deploy. Sesi tersimpan di perangkat ini — refresh tidak perlu memasukkan PIN lagi; gunakan tombol Keluar setelah selesai."
               : "Mode Warga (publik): siapa pun yang membuka tautan ini hanya bisa MELIHAT transparansi kas, pengumuman, agenda, dan UMKM — plus mengajukan surat & pengaduan atas namanya sendiri, dan masuk ke menu Iuran Saya (nama kepala keluarga + nomor HP terdaftar) untuk mengecek tunggakan & membayar iuran KK-nya sendiri. Semua tombol ubah/hapus/verifikasi disembunyikan dan terkunci. Pengurus masuk dengan PIN lewat tombol di kanan atas.";
         var html = "";
         html += '<header class="top"><div class="wrap">';
@@ -2346,9 +2393,10 @@
             '<div style="margin-top:.75rem"><label class="lbl" for="setup-petugas">PIN Petugas (4–6 angka)</label>' +
             '<input id="setup-petugas" type="password" inputmode="numeric" autocomplete="off" class="inp" placeholder="buat PIN Petugas" value="' + esc(ui.setupPetugas) + '" data-bind="setupPetugas"></div>' +
             (ui.setupError ? '<p class="field-err">' + esc(ui.setupError) + "</p>" : "") +
+            (!storageOk ? '<p class="err" style="margin-top:.75rem">Penyimpanan browser tidak tersedia di jendela ini (mode privat/incognito “Samaran”, atau penyimpanan diblokir). PIN dan sesi masuk TIDAK bisa disimpan, jadi refresh akan meminta penyiapan dari awal lagi. Buka halaman ini di jendela browser biasa supaya PIN dan sesi tersimpan.</p>' : "") +
             '<div class="actions-row"><button type="submit" class="btn btn-primary">Simpan PIN &amp; masuk sebagai Super Admin</button>' +
             '<button type="button" class="btn btn-ghost" data-act="login-close">Batal</button></div>' +
-            '<p class="hint" style="margin-top:.75rem">PIN tersimpan hanya di perangkat ini dan ikut ter-ekspor di file cadangan JSON (cadangan versi 4). Karena versi ini statis tanpa server, perlindungan ini mencegah warga biasa mengubah data dari tautan publik; keamanan penuh antarperangkat membutuhkan versi server.</p>' +
+            '<p class="hint" style="margin-top:.75rem">Setelah PIN dibuat, Anda langsung masuk sebagai Super Admin dan sesi itu tersimpan di perangkat ini: refresh, menutup tab, atau membuka lagi halaman ini tidak meminta PIN dari awal — sesi berakhir hanya bila Anda menekan tombol Keluar. PIN tersimpan hanya di perangkat ini dan ikut ter-ekspor di file cadangan JSON (cadangan versi 4). Karena versi ini statis tanpa server, perlindungan ini mencegah warga biasa mengubah data dari tautan publik; keamanan penuh antarperangkat membutuhkan versi server.</p>' +
             "</form></div>";
         }
         var html = '<div class="modal-overlay"><form class="modal-card" data-form="login">' +
@@ -2364,9 +2412,10 @@
           '<div style="margin-top:.75rem"><label class="lbl" for="login-pin">PIN peran</label>' +
           '<input id="login-pin" type="password" inputmode="numeric" autocomplete="off" class="inp" placeholder="PIN angka" value="' + esc(ui.loginPin) + '" data-bind="loginPin"></div>' +
           (ui.loginError ? '<p class="field-err">' + esc(ui.loginError) + "</p>" : "") +
+          (!storageOk ? '<p class="err" style="margin-top:.75rem">Penyimpanan browser tidak tersedia di jendela ini (mode privat/incognito “Samaran”, atau penyimpanan diblokir). Anda tetap bisa masuk, tetapi sesi tidak tersimpan — refresh akan meminta PIN lagi. Buka halaman ini di jendela browser biasa supaya sesi bertahan setelah refresh.</p>' : "") +
           '<div class="actions-row"><button type="submit" class="btn btn-primary">Masuk</button>' +
           '<button type="button" class="btn btn-ghost" data-act="login-close">Batal — tetap sebagai Warga</button></div>' +
-          '<p class="hint" style="margin-top:.75rem">Lupa PIN? Super Admin bisa mengganti PIN semua peran di tab Super Admin. Karena versi ini statis tanpa server, PIN tersimpan di perangkat ini — perlindungan ini mencegah warga biasa mengubah data dari tautan publik; untuk keamanan penuh antarperangkat gunakan versi server.</p>' +
+          '<p class="hint" style="margin-top:.75rem">Setelah masuk, sesi Anda tersimpan di perangkat ini: refresh atau membuka lagi halaman ini tidak meminta PIN ulang, sampai Anda menekan tombol Keluar. Lupa PIN? Super Admin bisa mengganti PIN semua peran di tab Super Admin. Karena versi ini statis tanpa server, PIN tersimpan di perangkat ini — perlindungan ini mencegah warga biasa mengubah data dari tautan publik; untuk keamanan penuh antarperangkat gunakan versi server.</p>' +
           "</form></div>";
         return html;
       }
