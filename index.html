@@ -206,18 +206,28 @@
       nav.tabs-mobile .pill-count { top: 2px; right: calc(50% - 22px); }
 
       /* ---------- Bilah navigasi atas pengurus (desktop >=992px) ----------
-         Menu pindah dari sidebar kiri ke bilah atas dengan dropdown per
-         kelompok, supaya konten (termasuk tabel) memanfaatkan seluruh
-         lebar halaman. Di bawah 992px bilah ini tidak tampil: tablet
-         memakai nav.tabs-desktop, HP memakai nav.tabs-mobile. */
+         Menu pindah dari sidebar kiri KE DALAM baris header (satu baris
+         dengan logo dan kontrol pengguna), dengan dropdown per kelompok,
+         supaya konten (termasuk tabel) memanfaatkan seluruh lebar halaman.
+         Di bawah 992px bilah ini tidak tampil: tablet memakai
+         nav.tabs-desktop, HP memakai nav.tabs-mobile. */
       .layout { display: block; }
       .topnav { display: none; }
       @media (min-width: 992px) {
         .wrap { max-width: 84rem; }
+        /* Menu pengurus pindah KE DALAM baris header (satu baris dengan logo
+           dan kontrol pengguna). .top-row tidak membungkus di >=992px;
+           .topnav jadi anak flex yang mengisi ruang tengah. Panel dropdown
+           terakhir diratakan ke kanan supaya tidak meluber keluar layar. */
+        .top-row { flex-wrap: nowrap; gap: 0.75rem; }
+        .top-row .brand { flex: none; }
+        .top-row .top-actions { flex: none; flex-wrap: nowrap; }
         .topnav {
-          display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem;
-          padding: 0.5rem 0 0.625rem; border-top: 1px solid var(--border);
+          display: flex; flex: 1 1 auto; min-width: 0; flex-wrap: nowrap;
+          align-items: center; justify-content: center; gap: 0.25rem;
+          padding: 0; border-top: 0;
         }
+        .topnav-group:last-child .topnav-drop { left: auto; right: 0; }
         .topnav-group { position: relative; }
         .topnav-toggle {
           display: inline-flex; align-items: center; gap: 0.375rem;
@@ -255,6 +265,29 @@
         }
         .topnav-drop button[aria-current="page"] svg { color: var(--accent-ink); }
         .topnav-drop .pill-count { top: 0.375rem; right: 0.375rem; }
+      }
+      /* Perampingan baris header supaya logo + 4 dropdown + kontrol muat
+         satu baris tanpa wrap di laptop yang lebih sempit. Label pendek
+         "Keluar" dan pill Cloud hanya dirapikan di >=992px — tampilan
+         tablet/HP di bawah 992px tidak berubah. */
+      .logout-short { display: none; }
+      @media (min-width: 992px) and (max-width: 1399.98px) {
+        .app-name .badge { display: none; }
+        .logout-full { display: none; }
+        .logout-short { display: inline; }
+      }
+      @media (min-width: 992px) and (max-width: 1199.98px) {
+        .cloud-pill { display: none; }
+        .app-name { font-size: 0.9375rem; }
+        .brand-mark { width: 2rem; height: 2rem; border-radius: 0.625rem; }
+        .brand-mark svg { width: 18px; height: 18px; }
+        .topnav-toggle { padding: 0.5rem 0.625rem; font-size: 0.8125rem; }
+        .top-row { gap: 0.5rem; }
+      }
+      @media (min-width: 992px) and (max-width: 1099.98px) {
+        .topnav-toggle { padding: 0.5rem 0.5rem; gap: 0.25rem; }
+        .top-row { gap: 0.375rem; }
+        .role-badge { padding: 0.3rem 0.6rem; }
       }
 
       main { padding: 1.25rem 0 6rem; min-width: 0; }
@@ -1818,11 +1851,13 @@
       }
 
       /* Bilah navigasi atas pengurus (desktop >=992px): 4 tombol dropdown,
-         satu per kelompok menu SIDE. Hanya satu dropdown terbuka dalam
-         satu waktu (ui.navDrop); panel hanya dirender saat terbuka.
-         Penyaringan per peran sama seperti sidebar dulu: item superOnly
-         hanya untuk Super Admin, item yang canTab-nya false disembunyikan,
-         dan kelompok tanpa satu pun item yang terlihat disembunyikan. */
+         satu per kelompok menu SIDE, dirender DI DALAM baris header atas
+         (.top-row, di antara brand dan .top-actions) — bukan baris sendiri.
+         Hanya satu dropdown terbuka dalam satu waktu (ui.navDrop); panel
+         hanya dirender saat terbuka. Penyaringan per peran sama seperti
+         sidebar dulu: item superOnly hanya untuk Super Admin, item yang
+         canTab-nya false disembunyikan, dan kelompok tanpa satu pun item
+         yang terlihat disembunyikan. */
       var NAV_CHEV = '<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>';
       function viewTopnav(pc) {
         var html = '<nav class="topnav" aria-label="Menu pengurus">';
@@ -1868,7 +1903,9 @@
         html += '<header class="top"><div class="wrap">';
         html += '<div class="top-row"><div class="brand"><span class="brand-mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 21h18"/><path d="M5 21V7l7-4 7 4v14"/><path d="M9 21v-6h6v6"/></svg></span><div>';
         html += '<p class="app-name">SI-RT/RW Digital · ' + esc(s.namaRt) + ' <span class="badge badge-amber">Versi Vercel</span></p>';
-        html += '</div></div><div class="top-actions">';
+        html += '</div></div>';
+        if (isPengurus()) html += viewTopnav(pc);
+        html += '<div class="top-actions">';
         /* Chip nama/peran di header: tombol pembuka Profil Saya bila sudah
            masuk (pengurus atau pengguna Warga bernama) — peran Warga tidak
            punya bilah menu pengurus, jadi chip inilah jalannya ke Profil. Mode Warga
@@ -1879,7 +1916,7 @@
         html += chipMasuk
           ? '<button type="button" class="role-badge ' + state.role + '" data-act="profil-open" title="Buka Profil Saya">' + chipLabel + "</button>"
           : '<span class="role-badge ' + state.role + '">' + chipLabel + "</span>";
-        html += '<span class="badge ' + cloudPillTone() + '">' + esc(cloudPillText()) + "</span>";
+        html += '<span class="badge cloud-pill ' + cloudPillTone() + '">' + esc(cloudPillText()) + "</span>";
         if (isPengurus()) {
           var nCount = notifItems().length;
           html += '<button type="button" class="bell-btn" data-act="notif-toggle" aria-label="Notifikasi pengurus">' +
@@ -1889,7 +1926,7 @@
         if (state.role === "warga") {
           html += '<button type="button" class="btn btn-primary" data-act="login-open">Login</button>';
         } else {
-          html += '<button type="button" class="btn btn-ghost" data-act="logout">Keluar → mode Warga</button>';
+          html += '<button type="button" class="btn btn-ghost" data-act="logout"><span class="logout-full">Keluar → mode Warga</span><span class="logout-short">Keluar</span></button>';
         }
         html += "</div></div>";
         if (roleNote) html += '<p class="role-note">' + roleNote + "</p>";
@@ -1910,7 +1947,6 @@
             "</button>";
         });
         html += "</nav>";
-        if (isPengurus()) html += viewTopnav(pc);
         html += "</div></header>";
         html += '<main><div class="wrap"><div class="layout">';
         html += "<div>";
