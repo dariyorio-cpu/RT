@@ -519,6 +519,49 @@
         border-radius: 1.125rem; box-shadow: var(--shadow-lg);
         width: 100%; max-width: 26rem; padding: 1.5rem; margin-top: 3rem;
       }
+
+      /* ---------- Modal masuk premium (nama + PIN) ---------- */
+      .modal-card.login-modal {
+        border: 1px solid rgba(217, 168, 63, 0.45);
+        border-radius: 1.25rem;
+        padding: 1.75rem 1.5rem 1.5rem;
+        box-shadow: 0 24px 48px rgba(6, 36, 25, 0.22);
+        position: relative;
+        overflow: hidden;
+      }
+      .modal-card.login-modal::before {
+        content: ""; position: absolute; top: 0; left: 0; right: 0; height: 0.25rem;
+        background: linear-gradient(90deg, var(--grad-a), var(--gold-bright) 50%, var(--grad-b));
+      }
+      .modal-card.login-modal h2.sec {
+        font-size: 1.375rem; font-weight: 800; letter-spacing: -0.015em; margin: 0;
+      }
+      .modal-card.login-modal h2.sec::after {
+        content: ""; display: block; width: 2.5rem; height: 0.2rem; margin-top: 0.5rem;
+        border-radius: 999px; background: linear-gradient(90deg, var(--gold), var(--gold-bright));
+      }
+      .modal-card.login-modal .sub { line-height: 1.6; }
+      .modal-card.login-modal label.lbl {
+        font-size: 0.8125rem; font-weight: 800; letter-spacing: 0.04em; color: var(--text);
+      }
+      .modal-card.login-modal .inp { padding: 0.75rem 0.875rem; font-size: 1rem; border-radius: 0.75rem; }
+      .modal-card.login-modal .inp:focus {
+        border-color: var(--gold);
+        box-shadow: 0 0 0 0.22rem var(--ring), 0 0 0 0.24rem rgba(217, 168, 63, 0.35);
+      }
+      .modal-card.login-modal .actions-row .btn-primary {
+        flex: 1 1 auto; padding: 0.75rem 1rem; font-size: 1rem; border-radius: 0.75rem;
+      }
+      .modal-card.login-modal .field-err {
+        background: var(--danger-bg); border: 1px solid var(--danger);
+        border-radius: 0.625rem; padding: 0.625rem 0.75rem; margin-top: 0.75rem;
+      }
+      .modal-card.login-modal .hint { line-height: 1.55; }
+      @media (max-width: 480px) {
+        .modal-card.login-modal { padding: 1.5rem 1.25rem 1.25rem; margin-top: 1.25rem; }
+        .modal-card.login-modal h2.sec { font-size: 1.25rem; }
+        .modal-card.login-modal .actions-row .btn { flex: 1 1 100%; }
+      }
       .access-table { width: 100%; border-collapse: collapse; font-size: 0.8125rem; }
       .access-table th, .access-table td { border: 1px solid var(--border); padding: 0.45rem 0.5rem; text-align: left; vertical-align: top; }
       .access-table th { background: var(--surface2); font-weight: 700; }
@@ -618,6 +661,7 @@
         users: [],                 /* [{id, nama, peran, pin, hp, aktif, dibuat}] — pengguna tambahan (Admin/Bendahara/Petugas/Warga), ditambah Super Admin di menu Users; tidak ada pengguna bawaan di file */
         settings: {
           namaRt: "RT Kami", wilayah: "", nominalBaku: 500, nominalIuran: 20000,
+          namaSuperAdmin: "", /* nama Super Admin dari penyiapan pertama — dipakai pencocokan login nama+PIN */
           saldoAwal: { utama: 0, proyek: 0, kematian: 0 },   /* saldo awal per kas — diisi di Pengaturan */
           rtList: [],                /* dukungan RW: [{nama, nominalJimpitan, nominalIuran}] — tiap RT bisa beda iuran */
           pengurus: []               /* [{nama, jabatan, noHp, foto}] — tampil di halaman depan */
@@ -666,11 +710,11 @@
         agJudul: "", agTgl: todayStr(), agLokasi: "", agKet: "",
         umJudul: "", umIsi: "",
         ukNama: "", ukPemilik: "", ukKategori: "", ukKontak: "", ukDesk: "",
-        loginOpen: false, loginRole: "petugas", loginUser: "", loginPin: "", loginNama: "", loginError: "",
+        loginOpen: false, loginPin: "", loginNama: "", loginError: "",
         uNama: "", uPeran: "petugas", uPin: "", uPinConf: "", uHp: "", uError: "", uDone: false,
         userPinFor: null, userPinNew: "", userPinConf: "", userPinError: "", userPinDone: false,
         setupNama: "", setupSuper: "", setupBendahara: "", setupPetugas: "", setupError: "",
-        serverLogin: true, serverRole: "petugas", serverNama: "", serverPin: "", serverError: "", serverBusy: false,
+        serverLogin: true, serverNama: "", serverPin: "", serverError: "", serverBusy: false, serverNoAccount: false,
         pinPetugas: null, pinBendahara: null, pinSuper: null, pinError: "", pinDone: false,
         notifOpen: false,
         cariWarga: "", cariWargaRun: false,
@@ -833,6 +877,7 @@
               !d.settings || typeof d.settings !== "object") { tandaiSnapTersimpan(); return; }
           state.settings = {
             namaRt: String(d.settings.namaRt || "RT Kami"),
+            namaSuperAdmin: String(d.settings.namaSuperAdmin || ""),
             wilayah: String(d.settings.wilayah || ""),
             nominalBaku: Math.max(100, Number(d.settings.nominalBaku) || 500),
             nominalIuran: Math.max(0, Number(d.settings.nominalIuran) || 20000),
@@ -991,6 +1036,7 @@
         var keepRole = state.role, keepNama = state.nama;
         state.settings = {
           namaRt: String(cs.settings.namaRt || "RT Kami"),
+          namaSuperAdmin: String(cs.settings.namaSuperAdmin || ""),
           wilayah: String(cs.settings.wilayah || ""),
           nominalBaku: Math.max(100, Number(cs.settings.nominalBaku) || 500),
           nominalIuran: Math.max(0, Number(cs.settings.nominalIuran) || 20000),
@@ -2907,48 +2953,54 @@
       }
 
       /* ================= Masuk pengurus (gerbang PIN) ================= */
-      /* Akun default untuk modal masuk: akun bawaan peran (nilai "") untuk
-         peran yang punya PIN peran, atau pengguna bernama aktif pertama
-         untuk Admin/Warga. Dipanggil saat peran dipilih/diubah dan saat
-         modal dibuka, supaya pilihan yang tampil di dropdown selalu sama
-         dengan state — tanpa menunggu event change dari dropdown. */
-      function defaultLoginUser(role) {
-        if (["petugas", "bendahara", "superadmin"].indexOf(role) >= 0) return "";
-        var pertama = null;
-        (state.users || []).forEach(function (u) {
-          if (!pertama && u.peran === role && u.aktif !== false) pertama = u;
-        });
-        return pertama ? String(pertama.id) : "";
-      }
-      function pastikanLoginUser() {
-        var cur = null;
-        if (ui.loginUser) {
-          (state.users || []).forEach(function (x) { if (String(x.id) === String(ui.loginUser)) cur = x; });
-        }
-        if (cur && cur.peran === ui.loginRole && cur.aktif !== false) return;
-        ui.loginUser = defaultLoginUser(ui.loginRole);
-      }
-      /* Cari pengguna bernama AKTIF pada peran tertentu berdasarkan nama
-         yang diketik (case-insensitive, spasi di ujung diabaikan). Dipakai
-         dua arah: saat submit login (jaring pengaman bila dropdown Akun
-         masih di akun bawaan peran) dan saat mengetik Nama Anda (dropdown
-         ikut pindah ke pengguna yang namanya cocok persis). */
-      function cariPenggunaLogin(role, nama) {
+      /* Cari akun masuk berdasarkan NAMA + PIN saja — peran ditentukan
+         dari yang cocok, karena peran sudah diatur Super Admin di menu
+         Users. Urutan: (a) pengguna bernama aktif dengan nama yang sama
+         (PIN menentukan bila nama sama ada di dua peran; PIN tidak cocok
+         dengan satu pun -> null); (b) nama Super Admin dari penyiapan
+         (state.nama) -> PIN Super Admin, bila tidak cocok lanjut ke (c);
+         Nama Super Admin dibaca dari settings.namaSuperAdmin (ikut
+         tersinkron ke server) atau state.nama sebagai cadangan.
+         (c) PIN cocok dengan TEPAT SATU dari ketiga PIN peran bawaan
+         (superadmin/bendahara/petugas) -> peran itu dengan nama yang
+         diketik. Mengembalikan {peran, nama, userId} atau null. */
+      function cariAkunLogin(nama, pin) {
         var t = String(nama || "").trim().toLowerCase();
-        if (!t) return null;
-        var ketemu = null;
-        (state.users || []).forEach(function (u) {
-          if (!ketemu && u.peran === role && u.aktif !== false && String(u.nama || "").trim().toLowerCase() === t) ketemu = u;
+        var p = String(pin || "").trim();
+        if (!t || !p) return null;
+        var bernama = (state.users || []).filter(function (u) {
+          return u && u.aktif !== false && String(u.nama || "").trim().toLowerCase() === t;
         });
-        return ketemu;
+        if (bernama.length > 0) {
+          var ketemu = null;
+          bernama.forEach(function (u) {
+            if (!ketemu && String(u.pin || "") !== "" && String(u.pin || "") === p) ketemu = u;
+          });
+          if (!ketemu) return null;
+          return { peran: ketemu.peran, nama: ketemu.nama, userId: ketemu.id };
+        }
+        /* (b) Nama Super Admin dari penyiapan pertama — tersimpan di
+           settings.namaSuperAdmin (ikut tersinkron) atau state.nama. */
+        var namaSA = String((state.settings && state.settings.namaSuperAdmin) || state.nama || "").trim().toLowerCase();
+        if (namaSA && namaSA === t) {
+          if (String(state.pins.superadmin || "") !== "" && String(state.pins.superadmin) === p) {
+            return { peran: "superadmin", nama: String(nama).trim(), userId: null };
+          }
+        }
+        var cocokPeran = [];
+        ["superadmin", "bendahara", "petugas"].forEach(function (r) {
+          if (String(state.pins[r] || "") !== "" && String(state.pins[r]) === p) cocokPeran.push(r);
+        });
+        if (cocokPeran.length !== 1) return null;
+        return { peran: cocokPeran[0], nama: String(nama).trim(), userId: null };
       }
       function viewLogin() {
         if (!state.pins.superadmin) {
           /* Perangkat baru yang datanya sudah ada di server bisa masuk
              lewat akun server — tanpa membuat PIN dan tanpa token sinkron. */
           if (ui.serverLogin) return viewServerLogin();
-          return '<div class="modal-overlay"><form class="modal-card" data-form="setup">' +
-            '<h2 class="sec" style="font-size:1.125rem">Penyiapan pertama — buat PIN pengurus</h2>' +
+          return '<div class="modal-overlay"><form class="modal-card login-modal" data-form="setup">' +
+            '<h2 class="sec">Penyiapan pertama — buat PIN pengurus</h2>' +
             '<p class="sub">File aplikasi ini sengaja dibagikan <b>tanpa PIN bawaan apa pun</b>, supaya tidak ada kredensial yang bisa dibaca dari kode. Ini untuk perangkat pertama yang datanya belum ada di server: pemilik sistem (Super Admin) membuat PIN-nya sendiri di sini, sekali saja di perangkat ini. Catat dan berikan tiap PIN hanya kepada pemegang perannya. Bila data RT sudah ada di server, perangkat ini bisa langsung masuk dengan nama &amp; PIN lewat tombol di bawah.</p>' +
             '<div style="margin-top:1rem"><label class="lbl" for="setup-nama">Nama Super Admin</label>' +
             '<input id="setup-nama" type="text" class="inp" placeholder="mis. Pak Dariyo" value="' + esc(ui.setupNama) + '" data-bind="setupNama"></div>' +
@@ -2966,43 +3018,18 @@
             '<p class="hint" style="margin-top:.75rem">Setelah PIN dibuat, Anda langsung masuk sebagai Super Admin dan sesi itu tersimpan di perangkat ini: refresh, menutup tab, atau membuka lagi halaman ini tidak meminta PIN dari awal — sesi berakhir hanya bila Anda menekan tombol Keluar. PIN tersimpan hanya di perangkat ini dan ikut ter-ekspor di file cadangan JSON (cadangan versi 5). Pengguna tambahan (Admin, Bendahara, Petugas, atau Warga) bisa ditambah nanti di menu Users oleh Super Admin. Karena versi ini statis tanpa server, perlindungan ini mencegah warga biasa mengubah data dari tautan publik; keamanan penuh antarperangkat membutuhkan versi server.</p>' +
             "</form></div>";
         }
-        /* Jaring pengaman: setiap kali modal masuk dirender, pastikan akun
-           yang terpilih di state cocok dengan yang tampil di dropdown. */
-        pastikanLoginUser();
-        var loginUsers = state.users.filter(function (u) { return u.peran === ui.loginRole && u.aktif !== false; });
-        var loginBuiltIn = ["petugas", "bendahara", "superadmin"].indexOf(ui.loginRole) >= 0;
-        var loginNamed = null;
-        if (ui.loginUser) {
-          state.users.forEach(function (x) { if (String(x.id) === String(ui.loginUser)) loginNamed = x; });
-        }
-        var html = '<div class="modal-overlay"><form class="modal-card" data-form="login">' +
-          '<h2 class="sec" style="font-size:1.125rem">Masuk sebagai Pengurus</h2>' +
-          '<p class="sub">Tautan publik ini terbuka untuk warga dalam mode hanya-lihat. Untuk mencatat atau mengubah data, masuk dengan peran dan PIN Anda. PIN dibuat oleh Super Admin saat penyiapan pertama dan hanya diketahui pengurus yang bersangkutan.</p>' +
-          '<div style="margin-top:1rem"><label class="lbl" for="login-role">Peran</label>' +
-          '<select id="login-role" class="inp" data-bind-sel="loginRole">' +
-          ["petugas", "bendahara", "admin", "superadmin", "warga"].map(function (r) {
-            return '<option value="' + r + '"' + (ui.loginRole === r ? " selected" : "") + ">" + ROLE_LABEL[r] + "</option>";
-          }).join("") + "</select></div>" +
-          '<div style="margin-top:.75rem"><label class="lbl" for="login-user">Akun</label>' +
-          '<select id="login-user" class="inp" data-bind-sel="loginUser">' +
-          (loginBuiltIn ? '<option value="">Akun ' + ROLE_LABEL[ui.loginRole] + ' (PIN peran)</option>' : "") +
-          loginUsers.map(function (u) {
-            return '<option value="' + u.id + '"' + (String(ui.loginUser) === String(u.id) ? " selected" : "") + ">" + esc(u.nama) + (u.hp ? " · " + esc(u.hp) : "") + "</option>";
-          }).join("") +
-          (!loginBuiltIn && loginUsers.length === 0 ? '<option value="" disabled>Belum ada pengguna ' + ROLE_LABEL[ui.loginRole] + '</option>' : "") +
-          "</select></div>" +
-          (!loginBuiltIn && loginUsers.length === 0
-            ? '<p class="hint" style="margin-top:.5rem">Belum ada pengguna ' + ROLE_LABEL[ui.loginRole] + ' yang aktif — Super Admin bisa menambahkannya di menu Users.</p>' : "") +
-          (loginNamed ? "" :
-            '<div style="margin-top:.75rem"><label class="lbl" for="login-nama">Nama Anda</label>' +
-            '<input id="login-nama" type="text" class="inp" placeholder="mis. Pak Budi" value="' + esc(ui.loginNama) + '" data-bind="loginNama"></div>') +
-          '<div style="margin-top:.75rem"><label class="lbl" for="login-pin">PIN ' + (loginNamed ? "pengguna" : "peran") + '</label>' +
+        var html = '<div class="modal-overlay"><form class="modal-card login-modal" data-form="login">' +
+          '<h2 class="sec">Masuk sebagai Pengurus</h2>' +
+          '<p class="sub">Tautan publik ini terbuka untuk warga dalam mode hanya-lihat. Untuk mencatat atau mengubah data, masuk dengan nama dan PIN Anda. Peran Anda sudah diatur Super Admin — cukup ketik nama dan PIN.</p>' +
+          '<div style="margin-top:1rem"><label class="lbl" for="login-nama">Nama Anda</label>' +
+          '<input id="login-nama" type="text" class="inp" placeholder="mis. Pak Budi" value="' + esc(ui.loginNama) + '" data-bind="loginNama"></div>' +
+          '<div style="margin-top:.75rem"><label class="lbl" for="login-pin">PIN</label>' +
           '<input id="login-pin" type="password" inputmode="numeric" autocomplete="off" class="inp" placeholder="PIN angka" value="' + esc(ui.loginPin) + '" data-bind="loginPin"></div>' +
           (ui.loginError ? '<p class="field-err">' + esc(ui.loginError) + "</p>" : "") +
           (!storageOk ? '<p class="err" style="margin-top:.75rem">Penyimpanan browser tidak tersedia di jendela ini (mode privat/incognito “Samaran”, atau penyimpanan diblokir). Anda tetap bisa masuk, tetapi sesi tidak tersimpan — refresh akan meminta PIN lagi. Buka halaman ini di jendela browser biasa supaya sesi bertahan setelah refresh.</p>' : "") +
           '<div class="actions-row"><button type="submit" class="btn btn-primary">Masuk</button>' +
           '<button type="button" class="btn btn-ghost" data-act="login-close">Batal — tetap sebagai Warga</button></div>' +
-          '<p class="hint" style="margin-top:.75rem">Setelah masuk, sesi Anda tersimpan di perangkat ini: refresh atau membuka lagi halaman ini tidak meminta PIN ulang, sampai Anda menekan tombol Keluar. Lupa PIN peran? Super Admin bisa menggantinya di Pengaturan; PIN pengguna bernama diganti di menu Users. Karena versi ini statis tanpa server, PIN tersimpan di perangkat ini — perlindungan ini mencegah warga biasa mengubah data dari tautan publik; untuk keamanan penuh antarperangkat gunakan versi server.</p>' +
+          '<p class="hint" style="margin-top:.75rem">Setelah masuk, sesi Anda tersimpan di perangkat ini: refresh atau membuka lagi halaman ini tidak meminta PIN ulang, sampai Anda menekan tombol Keluar. Lupa PIN? Super Admin bisa menggantinya di Pengaturan (PIN peran) atau di menu Users (PIN pengguna bernama).</p>' +
           "</form></div>";
         return html;
       }
@@ -3011,22 +3038,23 @@
          yang sudah tersimpan di server (Turso). Tidak perlu penyiapan PIN
          dan tidak perlu token sinkron — data, PIN, dan pengguna diunduh
          dari server setelah masuk. */
+      /* Masuk lewat akun server untuk perangkat baru: nama + PIN saja
+         yang sudah tersimpan di server (Turso). Peran ditentukan dari
+         nama+PIN yang cocok. Tidak perlu penyiapan PIN dan tidak perlu
+         token sinkron — data, PIN, dan pengguna diunduh dari server
+         setelah masuk. Penyiapan pertama HANYA ditawarkan bila server
+         menjawab no_account (belum ada data di server sama sekali). */
       function viewServerLogin() {
-        return '<div class="modal-overlay"><form class="modal-card" data-form="server-login">' +
-          '<h2 class="sec" style="font-size:1.125rem">Masuk dengan akun server</h2>' +
-          '<p class="sub">Perangkat ini belum punya PIN. Masuk dengan peran, nama, dan PIN yang sudah tersimpan di server (Turso) — data, PIN, dan pengguna akan diunduh ke perangkat ini. Tidak perlu penyiapan PIN dan tidak perlu token sinkron.</p>' +
-          '<div style="margin-top:1rem"><label class="lbl" for="server-role">Peran</label>' +
-          '<select id="server-role" class="inp" data-bind-sel="serverRole">' +
-          ["petugas", "bendahara", "admin", "superadmin", "warga"].map(function (r) {
-            return '<option value="' + r + '"' + (ui.serverRole === r ? " selected" : "") + ">" + ROLE_LABEL[r] + "</option>";
-          }).join("") + "</select></div>" +
-          '<div style="margin-top:.75rem"><label class="lbl" for="server-nama">Nama Anda</label>' +
+        return '<div class="modal-overlay"><form class="modal-card login-modal" data-form="server-login">' +
+          '<h2 class="sec">Masuk dengan akun server</h2>' +
+          '<p class="sub">Perangkat ini belum punya PIN. Masuk dengan nama dan PIN yang sudah tersimpan di server (Turso) — data, PIN, dan pengguna akan diunduh ke perangkat ini. Tidak perlu penyiapan PIN dan tidak perlu token sinkron.</p>' +
+          '<div style="margin-top:1rem"><label class="lbl" for="server-nama">Nama Anda</label>' +
           '<input id="server-nama" type="text" class="inp" placeholder="mis. Pak Dariyo" value="' + esc(ui.serverNama) + '" data-bind="serverNama"></div>' +
           '<div style="margin-top:.75rem"><label class="lbl" for="server-pin">PIN</label>' +
           '<input id="server-pin" type="password" inputmode="numeric" autocomplete="off" class="inp" placeholder="PIN angka" value="' + esc(ui.serverPin) + '" data-bind="serverPin"></div>' +
           (ui.serverError ? '<p class="field-err">' + esc(ui.serverError) + "</p>" : "") +
-          '<div class="actions-row"><button type="submit" class="btn btn-primary"' + (ui.serverBusy ? " disabled" : "") + ">" + (ui.serverBusy ? "Memeriksa…" : "Masuk &amp; unduh data") + "</button>" +
-          '<button type="button" class="btn btn-ghost" data-act="server-login-back">Kembali ke penyiapan pertama</button></div>' +
+          (ui.serverNoAccount ? '<div class="actions-row" style="margin-top:.5rem"><button type="button" class="btn btn-ghost" data-act="server-login-back">Lakukan penyiapan pertama</button></div>' : "") +
+          '<div class="actions-row"><button type="submit" class="btn btn-primary"' + (ui.serverBusy ? " disabled" : "") + ">" + (ui.serverBusy ? "Memeriksa…" : "Masuk &amp; unduh data") + "</button></div>" +
           '<p class="hint" style="margin-top:.75rem">Sesi masuk tersimpan di perangkat ini seperti biasa — refresh tidak meminta PIN lagi sampai Anda menekan tombol Keluar. Bila akun dikunci karena terlalu banyak percobaan salah, tunggu 15 menit.</p>' +
           "</form></div>";
       }
@@ -3470,10 +3498,10 @@
           ui.error = ""; ui.rtError = ""; ui.rtDone = "";
           render(); window.scrollTo(0, 0);
         }
-        else if (act === "login-open") { ui.loginOpen = true; ui.loginError = ""; ui.loginPin = ""; if (!state.pins.superadmin) ui.serverLogin = true; pastikanLoginUser(); render(); var lp = document.getElementById("login-pin"); if (lp) lp.focus(); }
+        else if (act === "login-open") { ui.loginOpen = true; ui.loginError = ""; ui.loginPin = ""; if (!state.pins.superadmin) { ui.serverLogin = true; ui.serverNoAccount = false; } render(); var ln = document.getElementById("login-nama") || document.getElementById("server-nama"); if (ln) ln.focus(); }
         else if (act === "login-close") { ui.loginOpen = false; ui.loginPin = ""; ui.loginError = ""; render(); }
-        else if (act === "server-login-open") { ui.serverLogin = true; ui.serverError = ""; ui.serverPin = ""; render(); var sn = document.getElementById("server-nama"); if (sn) sn.focus(); }
-        else if (act === "server-login-back") { ui.serverLogin = false; ui.serverError = ""; render(); }
+        else if (act === "server-login-open") { ui.serverLogin = true; ui.serverError = ""; ui.serverPin = ""; ui.serverNoAccount = false; render(); var sn = document.getElementById("server-nama"); if (sn) sn.focus(); }
+        else if (act === "server-login-back") { ui.serverLogin = false; ui.serverError = ""; ui.serverNoAccount = false; render(); }
         else if (act === "logout") {
           logAudit("Keluar dari peran " + ROLE_LABEL[state.role] + " — kembali ke mode Warga.");
           state.role = "warga"; state.nama = ""; state.userId = null; state.tab = "beranda";
@@ -3780,14 +3808,6 @@
         if (bind === "pfCari") { ui.pfCari = el.value; ui.focusId = "pf-cari"; render(); return; }
         if (bind === "loginNama") {
           ui.loginNama = el.value;
-          /* Nama yang cocok persis dengan pengguna bernama aktif peran ini
-             memindahkan dropdown Akun ke pengguna itu (bidang Nama hilang,
-             label PIN berubah jadi PIN pengguna, fokus pindah ke PIN). */
-          var cocok = cariPenggunaLogin(ui.loginRole, ui.loginNama);
-          if (cocok && String(ui.loginUser) !== String(cocok.id)) {
-            ui.loginUser = String(cocok.id);
-            ui.focusId = "login-pin"; render();
-          }
           return;
         }
         if (bind in ui) ui[bind] = el.value;
@@ -3795,8 +3815,6 @@
       document.addEventListener("change", function (ev) {
         var el = ev.target;
         var selBind = el.getAttribute && el.getAttribute("data-bind-sel");
-        if (selBind === "loginRole") { ui.loginRole = el.value; ui.loginUser = defaultLoginUser(ui.loginRole); ui.loginPin = ""; ui.loginError = ""; render(); return; }
-        if (selBind === "loginUser") { ui.loginUser = el.value; ui.loginPin = ""; ui.loginError = ""; render(); return; }
         if (selBind && selBind in ui) { ui[selBind] = el.value; return; }
         var bind = el.getAttribute && el.getAttribute("data-bind");
         if (bind === "fStatus") { ui.fStatus = el.value; return; }
@@ -3875,6 +3893,7 @@
               }
               state.settings = {
                 namaRt: String(data.settings.namaRt || "RT Kami"),
+                namaSuperAdmin: String(data.settings.namaSuperAdmin || ""),
                 wilayah: String(data.settings.wilayah || ""),
                 nominalBaku: Math.max(100, Number(data.settings.nominalBaku) || 500),
                 nominalIuran: Math.max(0, Number(data.settings.nominalIuran) || 20000),
@@ -3928,6 +3947,7 @@
           state.pins.petugas = ui.setupPetugas.trim();
           state.role = "superadmin";
           state.nama = ui.setupNama.trim();
+          state.settings.namaSuperAdmin = ui.setupNama.trim();
           ui.setupSuper = ""; ui.setupBendahara = ""; ui.setupPetugas = ""; ui.setupError = "";
           ui.loginOpen = false;
           logAudit("Penyiapan pertama selesai: PIN ketiga peran dibuat oleh pemilik; masuk sebagai Super Admin.");
@@ -3935,87 +3955,47 @@
           render(); window.scrollTo(0, 0);
         }
         else if (kind === "login") {
-          var lrole = ui.loginRole;
-          var luser = null;
-          if (ui.loginUser) {
-            state.users.forEach(function (x) { if (String(x.id) === String(ui.loginUser)) luser = x; });
-          }
-          /* Jaring pengaman utama: nama yang diketik di "Nama Anda" cocok
-             dengan pengguna bernama AKTIF peran ini — validasi memakai PIN
-             pengguna itu, apa pun isi dropdown Akun saat itu (mis. masih di
-             "Akun Bendahara (PIN peran)"). Pengguna nonaktif tidak cocok
-             (difilter di cariPenggunaLogin), jadi tetap tidak bisa masuk. */
-          if (!luser) {
-            var dariNama = cariPenggunaLogin(lrole, ui.loginNama);
-            if (dariNama) { luser = dariNama; ui.loginUser = String(dariNama.id); }
-          }
-          /* Pertahanan terakhir bug akun tunggal: bila peran Admin/Warga
-             belum punya akun terpilih di state, isi dengan pengguna
-             bernama aktif pertama sebelum memvalidasi. */
-          if ((lrole === "admin" || lrole === "warga") && !luser) {
-            pastikanLoginUser();
-            if (ui.loginUser) {
-              state.users.forEach(function (x) { if (String(x.id) === String(ui.loginUser)) luser = x; });
-            }
-          }
-          if (luser) {
-            /* Masuk lewat akun pengguna bernama (menu Users). */
-            if (luser.peran !== lrole || luser.aktif === false) {
-              ui.loginError = "Akun pengguna itu sudah tidak aktif atau perannya tidak cocok."; render(); return;
-            }
-            if (String(ui.loginPin).trim() !== String(luser.pin || "")) {
-              ui.loginError = "PIN salah untuk akun " + luser.nama + ". Coba lagi, atau tetap sebagai Warga.";
-              ui.loginPin = ""; render();
-              var lpf2 = document.getElementById("login-pin"); if (lpf2) lpf2.focus();
-              return;
-            }
-            state.role = lrole;
-            state.nama = luser.nama;
-            state.userId = luser.id;
-            ui.loginOpen = false; ui.loginPin = ""; ui.loginError = ""; ui.namaError = "";
-            logAudit("Masuk sebagai " + ROLE_LABEL[lrole] + " (" + luser.nama + ").");
-            if (lrole === "petugas") state.tab = "keliling";
-            render(); window.scrollTo(0, 0);
-            return;
-          }
-          if ((lrole === "admin" || lrole === "warga") && !luser) { ui.loginError = "Pilih dulu akun pengguna " + ROLE_LABEL[lrole] + " — Super Admin bisa menambahkannya di menu Users."; render(); return; }
-          if (!state.pins[lrole]) { ui.loginError = "PIN peran " + ROLE_LABEL[lrole] + " belum dibuat. Super Admin perlu menyiapkannya dulu (tutup jendela ini, lalu Masuk sebagai Pengurus untuk penyiapan)."; render(); return; }
-          if (!ui.loginNama.trim()) { ui.loginError = "Isi dulu nama Anda."; render(); return; }
-          if (String(ui.loginPin).trim() !== String(state.pins[lrole] || "")) {
-            ui.loginError = "PIN salah untuk peran " + ROLE_LABEL[lrole] + ". Coba lagi, atau tetap sebagai Warga.";
+          /* Masuk lokal: nama + PIN saja. Peran ditentukan dari yang
+             cocok (lihat cariAkunLogin) — tidak ada pilihan peran. */
+          if (!String(ui.loginNama || "").trim()) { ui.loginError = "Isi dulu nama Anda."; render(); return; }
+          if (!String(ui.loginPin || "").trim()) { ui.loginError = "Isi dulu PIN Anda."; render(); return; }
+          var akun = cariAkunLogin(ui.loginNama, ui.loginPin);
+          if (!akun) {
+            ui.loginError = "Nama atau PIN salah. Coba lagi, atau tetap sebagai Warga.";
             ui.loginPin = ""; render();
             var lpf = document.getElementById("login-pin"); if (lpf) lpf.focus();
             return;
           }
-          state.role = lrole;
-          state.nama = ui.loginNama.trim();
-          state.userId = null;
+          state.role = akun.peran;
+          state.nama = akun.nama;
+          state.userId = akun.userId !== undefined && akun.userId !== null ? akun.userId : null;
           ui.loginOpen = false; ui.loginPin = ""; ui.loginError = ""; ui.namaError = "";
-          logAudit("Masuk sebagai " + ROLE_LABEL[lrole] + ".");
-          if (lrole === "petugas") state.tab = "keliling";
-          else if (lrole === "superadmin") state.tab = "pengaturan";
+          logAudit("Masuk sebagai " + ROLE_LABEL[akun.peran] + " (" + akun.nama + ").");
+          if (akun.peran === "petugas") state.tab = "keliling";
+          else if (akun.peran === "superadmin") state.tab = "pengaturan";
           render(); window.scrollTo(0, 0);
         }
         else if (kind === "server-login") {
-          /* Masuk lewat akun server: peran + nama + PIN divalidasi server
-             terhadap state di Turso. Sukses: state utuh diterapkan seperti
+          /* Masuk lewat akun server: nama + PIN divalidasi server
+             terhadap state di Turso; peran ditentukan server dari
+             yang cocok. Sukses: state utuh diterapkan seperti
              hasil unduh cloud, token sesi disimpan, lalu masuk seperti
-             login biasa. PIN tidak pernah masuk ke URL — hanya body POST. */
+             login biasa. PIN tidak pernah masuk ke URL — hanya body POST.
+             Penyiapan pertama hanya ditawarkan bila server menjawab
+             no_account (belum ada data di server sama sekali). */
           if (ui.serverBusy) return;
-          var sRole = ui.serverRole;
-          if (["petugas", "bendahara", "admin", "superadmin", "warga"].indexOf(sRole) < 0) { ui.serverError = "Peran tidak dikenal."; render(); return; }
           if (!String(ui.serverNama || "").trim()) { ui.serverError = "Isi dulu nama Anda."; render(); return; }
           if (!String(ui.serverPin || "").trim()) { ui.serverError = "Isi dulu PIN Anda."; render(); return; }
-          ui.serverBusy = true; ui.serverError = ""; render();
+          ui.serverBusy = true; ui.serverError = ""; ui.serverNoAccount = false; render();
           fetch(CLOUD_ENDPOINT, {
             method: "POST", headers: { "Content-Type": "text/plain" },
-            body: JSON.stringify({ action: "auth", peran: sRole, nama: String(ui.serverNama).trim(), pin: String(ui.serverPin).trim() })
+            body: JSON.stringify({ action: "auth", nama: String(ui.serverNama).trim(), pin: String(ui.serverPin).trim() })
           }).then(function (r) { return r.json(); }).then(function (res) {
             ui.serverBusy = false;
             if (!res || !res.ok) {
               if (res && res.error === "locked") ui.serverError = "Terlalu banyak percobaan salah — coba lagi 15 menit.";
-              else if (res && res.error === "no_account") ui.serverError = "Belum ada data di server — lakukan penyiapan pertama.";
-              else ui.serverError = "Nama, peran, atau PIN salah.";
+              else if (res && res.error === "no_account") { ui.serverError = "Belum ada data di server — lakukan penyiapan pertama."; ui.serverNoAccount = true; }
+              else ui.serverError = "Nama atau PIN salah.";
               ui.serverPin = ""; render(); return;
             }
             /* Sukses: simpan token sesi, terapkan state server seperti
@@ -4035,11 +4015,11 @@
               ui.serverPin = ""; render(); return;
             }
             cloudLastSentStr = JSON.stringify(cloudPayload());
-            state.role = String(res.peran || sRole);
+            state.role = String(res.peran || "warga");
             state.nama = String(res.nama || ui.serverNama.trim());
             state.userId = res.userId !== undefined && res.userId !== null ? res.userId : null;
             simpanCloudCfg();
-            ui.serverPin = ""; ui.serverNama = ""; ui.serverError = "";
+            ui.serverPin = ""; ui.serverNama = ""; ui.serverError = ""; ui.serverNoAccount = false;
             ui.serverLogin = false; ui.loginOpen = false;
             logAudit("Masuk lewat akun server sebagai " + ROLE_LABEL[state.role] + " (" + state.nama + ").");
             if (state.role === "petugas") state.tab = "keliling";

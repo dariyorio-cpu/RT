@@ -11,17 +11,23 @@
 //           bila updatedAt yang dikirim lebih lama dari yang tersimpan
 //           (last-write-wins; perangkat yang kalah harus mengunduh dulu)
 //   Tanpa token yang benar -> {ok:false, error:"unauthorized"}
-//   POST {action:"auth", peran, nama, pin}     -> TANPA token sinkron:
-//        memvalidasi nama+peran+PIN terhadap state yang tersimpan di
-//        Turso (pengguna bernama di state.users, atau PIN peran di
-//        state.pins), lalu mengembalikan {ok:true, sessionToken, state,
-//        updatedAt, deviceId, peran, nama, userId}. sessionToken berlaku
-//        30 hari dan bisa dipakai sebagai pengganti SYNC_TOKEN untuk
-//        ping/load/save (hanya lewat body POST — TIDAK PERNAH lewat URL).
+//   POST {action:"auth", nama, pin}            -> TANPA token sinkron:
+//        memvalidasi nama+PIN terhadap state yang tersimpan di
+//        Turso (pengguna bernama di state.users, nama Super Admin di
+//        state.nama, atau PIN peran bawaan di state.pins), lalu
+//        mengembalikan {ok:true, sessionToken, state,
+//        updatedAt, deviceId, peran, nama, userId}. Peran ditentukan
+//        dari nama+PIN yang cocok — klien tidak lagi memilih peran.
+//        sessionToken berlaku 30 hari dan bisa dipakai sebagai
+//        pengganti SYNC_TOKEN untuk ping/load/save (hanya lewat body
+//        POST — TIDAK PERNAH lewat URL).
 //        PIN/nama salah -> {ok:false, error:"auth_gagal"} (sama untuk
 //        nama salah maupun PIN salah); 5x salah -> terkunci 15 menit
 //        ({ok:false, error:"locked"}); belum ada state tersimpan ->
 //        {ok:false, error:"no_account"}.
+//        Kompatibel mundur: klien lama yang masih mengirim "peran"
+//        tetap dilayani dengan perilaku lama (pengguna bernama harus
+//        cocok peran+nama; kunci peran|nama / peran|*).
 // Validasi state minimal: houses/collections/expenses harus array dan
 // settings harus object — sama seperti validasi backend Drive.
 //
@@ -207,23 +213,37 @@ async function handleLoad(db, res) {
   });
 }
 
-/* Masuk dengan akun server (peran + nama + PIN yang tersimpan di Turso).
-   Dipanggil TANPA token sinkron. Mengembalikan state utuh + sessionToken
-   bila cocok. Pesan gagal sengaja sama untuk nama salah maupun PIN salah,
-   dan tidak pernah mengembalikan daftar pengguna/PIN. */
+/* Masuk dengan akun server (nama + PIN yang tersimpan di Turso).
+   Dipanggil TANPA token sinkron. Peran ditentukan dari nama+PIN yang
+   cocok — klien tidak lagi memilih peran. Urutan pencocokan:
+     a. pengguna bernama aktif di state.users dengan nama yang sama
+        (trim, case-insensitive); PIN menentukan bila nama sama ada di
+        dua peran; PIN tidak cocok dengan satu pun -> gagal;
+     b. bila tidak ada pengguna bernama itu: nama cocok dengan nama
+        Super Admin dari penyiapan (settings.namaSuperAdmin, atau
+        state.nama sebagai cadangan) -> cek PIN Super Admin; bila
+        tidak cocok lanjut ke (c);
+     c. PIN cocok dengan TEPAT SATU dari ketiga PIN peran bawaan
+        (superadmin/bendahara/petugas) -> masuk sebagai peran itu
+        dengan nama yang diketik.
+   Kunci percobaan gagal memakai nama saja (nama-lower).
+   Kompatibel mundur: bila body masih menyertakan "peran" yang valid,
+   dipakai perilaku lama (pengguna bernama harus cocok peran+nama,
+   jatuh ke PIN peran itu; kunci peran|nama / peran|*).
+   Mengembalikan state utuh + sessionToken bila cocok. Pesan gagal
+   sengaja sama untuk nama salah maupun PIN salah, dan tidak pernah
+   mengembalikan daftar pengguna/PIN. */
 async function handleAuth(db, res, body) {
   if (!body || body.__badJson) {
     send(res, 400, { ok: false, error: "bad_state" });
     return;
   }
-  const peran = String(body.peran || "").trim();
   const nama = String(body.nama || "").trim();
   const pin = String(body.pin || "").trim();
-  if (
-    ["petugas", "bendahara", "admin", "superadmin", "warga"].indexOf(peran) < 0 ||
-    !nama ||
-    !pin
-  ) {
+  const peranLama = String(body.peran || "").trim();
+  const modeLama =
+    ["petugas", "bendahara", "admin", "superadmin", "warga"].indexOf(peranLama) >= 0;
+  if (!nama || !pin) {
     send(res, 200, { ok: false, error: "auth_gagal" });
     return;
   }
@@ -247,24 +267,86 @@ async function handleAuth(db, res, body) {
     return;
   }
   const state = row.state || {};
-  // Pengguna bernama aktif dengan peran dan nama yang sama (nama tidak
-  // case-sensitive). Bila tidak ada, jatuh ke akun bawaan peran.
   const namaKecil = nama.toLowerCase();
-  let named = null;
   const users = Array.isArray(state.users) ? state.users : [];
-  users.forEach(function (u) {
-    if (
-      !named &&
-      u &&
-      u.peran === peran &&
-      u.aktif !== false &&
-      String(u.nama || "").trim().toLowerCase() === namaKecil
-    ) {
-      named = u;
+  const pins = state.pins || {};
+  let peran = null;
+  let userId = null;
+  let namaSesi = nama;
+  let cocok = false;
+  let kunci = namaKecil;
+  if (modeLama) {
+    // --- Perilaku lama (klien lama masih mengirim peran) ---
+    let named = null;
+    users.forEach(function (u) {
+      if (
+        !named &&
+        u &&
+        u.peran === peranLama &&
+        u.aktif !== false &&
+        String(u.nama || "").trim().toLowerCase() === namaKecil
+      ) {
+        named = u;
+      }
+    });
+    kunci = named ? peranLama + "|" + namaKecil : peranLama + "|*";
+    if (named) {
+      cocok = String(named.pin || "") !== "" && String(named.pin || "") === pin;
+      if (cocok) {
+        peran = named.peran;
+        userId = named.id !== undefined && named.id !== null ? String(named.id) : null;
+        namaSesi = String(named.nama || nama);
+      }
+    } else {
+      const pinPeran = pins[peranLama];
+      cocok = !!pinPeran && String(pinPeran) === pin;
+      if (cocok) peran = peranLama;
     }
-  });
-  // Kunci percobaan gagal: nama untuk pengguna bernama, peran|* untuk akun bawaan.
-  const kunci = named ? peran + "|" + namaKecil : peran + "|*";
+  } else {
+    // --- Nama + PIN saja: peran ditentukan dari yang cocok ---
+    const bernama = users.filter(function (u) {
+      return (
+        u &&
+        u.aktif !== false &&
+        String(u.nama || "").trim().toLowerCase() === namaKecil
+      );
+    });
+    if (bernama.length > 0) {
+      // (a) Pengguna bernama — PIN menentukan bila nama sama ada di dua peran.
+      let ketemu = null;
+      bernama.forEach(function (u) {
+        if (!ketemu && String(u.pin || "") !== "" && String(u.pin || "") === pin) ketemu = u;
+      });
+      if (ketemu) {
+        cocok = true;
+        peran = ketemu.peran;
+        userId = ketemu.id !== undefined && ketemu.id !== null ? String(ketemu.id) : null;
+        namaSesi = String(ketemu.nama || nama);
+      }
+      // PIN tidak cocok dengan satu pun pengguna bernama itu -> gagal.
+    } else if (String((state.settings && state.settings.namaSuperAdmin) || state.nama || "").trim().toLowerCase() === namaKecil) {
+      // (b) Nama Super Admin dari penyiapan pertama (ikut tersinkron
+      // di settings.namaSuperAdmin; state.nama sebagai cadangan).
+      const pinSA = pins.superadmin;
+      if (pinSA && String(pinSA) === pin) {
+        cocok = true;
+        peran = "superadmin";
+      }
+      // Bila PIN Super Admin tidak cocok, lanjut ke (c).
+    }
+    if (!cocok && bernama.length === 0) {
+      // (c) PIN peran bawaan — harus cocok dengan TEPAT SATU peran.
+      const cocokPeran = [];
+      ["superadmin", "bendahara", "petugas"].forEach(function (r) {
+        const p = pins[r];
+        if (p && String(p) === pin) cocokPeran.push(r);
+      });
+      if (cocokPeran.length === 1) {
+        cocok = true;
+        peran = cocokPeran[0];
+      }
+    }
+  }
   const lock = await db.execute({
     sql: "SELECT gagal, terkunci_sampai FROM auth_locks WHERE kunci = ?",
     args: [kunci],
@@ -275,17 +357,6 @@ async function handleAuth(db, res, body) {
       send(res, 200, { ok: false, error: "locked" });
       return;
     }
-  }
-  let cocok = false;
-  let userId = null;
-  let namaSesi = nama;
-  if (named) {
-    cocok = String(named.pin || "") !== "" && String(named.pin || "") === pin;
-    userId = named.id !== undefined && named.id !== null ? String(named.id) : null;
-    namaSesi = String(named.nama || nama);
-  } else {
-    const pinPeran = state.pins && state.pins[peran];
-    cocok = !!pinPeran && String(pinPeran) === pin;
   }
   if (!cocok) {
     // Gagal: tambah hitungan; 5x gagal -> kunci 15 menit. Satu pernyataan
