@@ -105,6 +105,7 @@
         justify-content: space-between; gap: 0.5rem; padding: 0.625rem 0;
       }
       .brand { display: flex; align-items: center; gap: 0.625rem; min-width: 0; }
+      .top-actions { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
       .brand-mark {
         width: 2.5rem; height: 2.5rem; flex: none; border-radius: 0.75rem;
         background: linear-gradient(135deg, #0e7a5a 0%, var(--accent) 55%, var(--accent-dark) 100%);
@@ -117,7 +118,13 @@
       /* Header publik ringkas: tanpa baris subjudul nominal; di HP tombol
          masuk selebar baris supaya mudah dijangkau. */
       @media (max-width: 640px) {
-        .top-row { gap: 0.375rem; padding: 0.5rem 0; }
+        .top-row { justify-content: flex-start; gap: 0.375rem; padding: 0.5rem 0; }
+        .top-row .brand { order: 1; }
+        .top-actions { display: contents; }
+        .top-row .role-badge, .top-row .badge { order: 3; }
+        .top-row .bell-btn { order: 2; }
+        .top-row .btn-primary[data-act="login-open"],
+        .top-row .btn-ghost[data-act="logout"] { order: 2; flex: none; margin-left: auto; padding: 0.45rem 0.8rem; font-size: 0.8125rem; }
         .brand { gap: 0.5rem; }
         .brand-mark { width: 2rem; height: 2rem; border-radius: 0.625rem; }
         .brand-mark svg { width: 18px; height: 18px; }
@@ -1592,7 +1599,7 @@
         html += '<header class="top"><div class="wrap">';
         html += '<div class="top-row"><div class="brand"><span class="brand-mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 21h18"/><path d="M5 21V7l7-4 7 4v14"/><path d="M9 21v-6h6v6"/></svg></span><div>';
         html += '<p class="app-name">SI-RT/RW Digital · ' + esc(s.namaRt) + ' <span class="badge badge-amber">Versi Vercel</span></p>';
-        html += '</div></div><div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap">';
+        html += '</div></div><div class="top-actions">';
         html += '<span class="role-badge ' + state.role + '">' + esc(ROLE_LABEL[state.role]) +
           (isPengurus() && state.nama.trim() ? " · " + esc(state.nama.trim()) : "") + "</span>";
         html += '<span class="badge ' + cloudPillTone() + '">' + esc(cloudPillText()) + "</span>";
