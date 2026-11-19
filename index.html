@@ -137,6 +137,15 @@
       }
       nav.tabs-desktop button:hover { background: var(--accent-soft); color: var(--accent-ink); }
       nav.tabs-desktop button[aria-current="page"] { background: var(--accent); color: var(--accent-text); box-shadow: 0 4px 10px rgba(7, 68, 51, 0.25); }
+      /* Bilah navigasi atas tampilan publik (Warga): tautan jangkar ke bagian Beranda. */
+      .public-nav { display: flex; gap: 0.375rem; overflow-x: auto; padding: 0.25rem 0 0.625rem; scrollbar-width: none; }
+      .public-nav::-webkit-scrollbar { display: none; }
+      .public-nav a {
+        flex: none; padding: 0.375rem 0.875rem; border-radius: 999px;
+        border: 1px solid var(--border); background: var(--surface);
+        color: var(--text); font-size: 0.8125rem; font-weight: 700; text-decoration: none;
+      }
+      .public-nav a:hover { background: var(--accent-soft); color: var(--accent-ink); border-color: var(--accent); }
       .pill-count {
         position: absolute; top: -0.25rem; right: -0.25rem;
         background: var(--danger); color: #fff; border-radius: 999px;
@@ -494,6 +503,7 @@
       .role-badge.warga { background: var(--surface2); color: var(--dim); border: 1px solid var(--border); }
       .role-badge.petugas { background: var(--accent-soft); color: var(--accent-ink); border: 1px solid var(--border); }
       .role-badge.bendahara { background: var(--green-bg); color: var(--green); border: 1px solid var(--border); }
+      .role-badge.admin { background: var(--accent-soft); color: var(--accent-ink); border: 1px solid var(--border); }
       .role-badge.superadmin { background: #101613; color: var(--gold-bright); border: 1px solid rgba(217, 168, 63, 0.55); }
       @media (prefers-color-scheme: dark) {
         .role-badge.superadmin { background: var(--gold-bright); color: #241a04; border-color: var(--gold-bright); }
@@ -601,9 +611,11 @@
       /* ================= State (tersimpan di perangkat ini) ================= */
       var state = {
         tab: "beranda",
-        role: "warga",             /* warga (publik, hanya lihat) | petugas | bendahara | superadmin — peran pengurus terkunci PIN */
+        role: "warga",             /* warga (publik, hanya lihat) | petugas | bendahara | admin | superadmin — peran pengurus terkunci PIN */
         nama: "",
+        userId: null,              /* id pengguna bernama (menu Users) bila masuk lewat akun pengguna; null bila masuk lewat akun bawaan peran */
         pins: { petugas: "", bendahara: "", superadmin: "" }, /* Kosong di file yang dibagikan — PIN dibuat pemilik saat penyiapan pertama, tidak pernah tertulis di kode */
+        users: [],                 /* [{id, nama, peran, pin, hp, aktif, dibuat}] — pengguna tambahan (Admin/Bendahara/Petugas/Warga), ditambah Super Admin di menu Users; tidak ada pengguna bawaan di file */
         settings: {
           namaRt: "RT Kami", wilayah: "", nominalBaku: 500, nominalIuran: 20000,
           saldoAwal: { utama: 0, proyek: 0, kematian: 0 },   /* saldo awal per kas — diisi di Pengaturan */
@@ -654,7 +666,9 @@
         agJudul: "", agTgl: todayStr(), agLokasi: "", agKet: "",
         umJudul: "", umIsi: "",
         ukNama: "", ukPemilik: "", ukKategori: "", ukKontak: "", ukDesk: "",
-        loginOpen: false, loginRole: "petugas", loginPin: "", loginNama: "", loginError: "",
+        loginOpen: false, loginRole: "petugas", loginUser: "", loginPin: "", loginNama: "", loginError: "",
+        uNama: "", uPeran: "petugas", uPin: "", uPinConf: "", uHp: "", uError: "", uDone: false,
+        userPinFor: null, userPinNew: "", userPinConf: "", userPinError: "", userPinDone: false,
         setupNama: "", setupSuper: "", setupBendahara: "", setupPetugas: "", setupError: "",
         pinPetugas: null, pinBendahara: null, pinSuper: null, pinError: "", pinDone: false,
         notifOpen: false,
@@ -682,7 +696,7 @@
          (mode privat dsb.), aplikasi tetap berjalan dari memori seperti semula. ===== */
       var LS_KEY = "sirt-rw-vercel-v1";
       var LS_SESI_KEY = "sirt-rw-sesi-v1";
-      var LS_FIELDS = ["settings", "pins", "houses", "collections", "expenses", "warga", "iuran",
+      var LS_FIELDS = ["settings", "pins", "users", "houses", "collections", "expenses", "warga", "iuran",
         "aset", "surat", "pinjam", "aduan", "agenda", "umum", "umkm", "audit", "profil", "broadcast", "bayar"];
       /* Uji sekali di awal: apakah browser mengizinkan penyimpanan persisten?
          Mode privat/incognito ("Samaran") dan browser yang memblokir penyimpanan
@@ -704,9 +718,27 @@
       function simpanSesi() {
         try {
           localStorage.setItem(LS_SESI_KEY, JSON.stringify({
-            pins: state.pins, sesi: { role: state.role, nama: state.nama }
+            pins: state.pins, users: state.users,
+            sesi: { role: state.role, nama: state.nama, userId: state.userId || null }
           }));
         } catch (e) { /* penyimpanan tidak tersedia — sesi hanya di memori */ }
+      }
+      /* Pulihkan sesi masuk dari objek sesi tersimpan: akun pengguna bernama
+         (menu Users) dikenali lewat userId, akun bawaan peran lewat PIN peran
+         yang memang ada di perangkat ini. */
+      function pulihkanSesi(sesi) {
+        if (!sesi || !sesi.role) return;
+        if (sesi.userId) {
+          var u = null;
+          (state.users || []).forEach(function (x) { if (String(x.id) === String(sesi.userId)) u = x; });
+          if (u && u.aktif !== false) { state.role = u.peran; state.nama = u.nama; state.userId = u.id; }
+          return;
+        }
+        if (sesi.role !== "warga" && state.pins[sesi.role]) {
+          state.role = sesi.role;
+          state.nama = String(sesi.nama || "");
+          state.userId = null;
+        }
       }
       function simpanPerangkat() {
         simpanSesi();
@@ -729,10 +761,8 @@
                 if (ds.pins[k]) state.pins[k] = String(ds.pins[k]);
               });
             }
-            if (ds && ds.sesi && ds.sesi.role && ds.sesi.role !== "warga" && state.pins[ds.sesi.role]) {
-              state.role = ds.sesi.role;
-              state.nama = String(ds.sesi.nama || "");
-            }
+            if (ds && Array.isArray(ds.users)) state.users = ds.users;
+            if (ds && ds.sesi) pulihkanSesi(ds.sesi);
           }
         } catch (e) { /* kunci sesi tidak terbaca — lanjut ke snapshot data */ }
         /* 2) Baru muat snapshot data besar (PIN/sesi di dalamnya hanya jadi
@@ -762,17 +792,14 @@
             });
           }
           state.houses = d.houses; state.collections = d.collections; state.expenses = d.expenses;
-          ["warga", "iuran", "aset", "surat", "pinjam", "aduan", "agenda", "umum", "umkm", "audit", "profil", "broadcast", "bayar"].forEach(function (k) {
+          ["users", "warga", "iuran", "aset", "surat", "pinjam", "aduan", "agenda", "umum", "umkm", "audit", "profil", "broadcast", "bayar"].forEach(function (k) {
             state[k] = Array.isArray(d[k]) ? d[k] : [];
           });
           state.seq = Number(d.seq) || (state.houses.length + state.collections.length + state.expenses.length + 1);
           /* Pulihkan sesi dari snapshot hanya bila kunci sesi tersendiri belum
              memulihkan sesi apa pun, dan hanya bila PIN peran itu memang ada
-             di perangkat ini. */
-          if (state.role === "warga" && d.sesi && state.pins[d.sesi.role]) {
-            state.role = d.sesi.role;
-            state.nama = String(d.sesi.nama || "");
-          }
+             di perangkat ini (atau akun pengguna bernama itu masih aktif). */
+          if (state.role === "warga" && d.sesi) pulihkanSesi(d.sesi);
         } catch (e) { /* snapshot rusak/tidak terbaca — mulai dari keadaan awal */ }
       }
 
@@ -1268,18 +1295,19 @@
       }
 
       /* ================= Komponen kecil ================= */
-      var ROLE_LABEL = { warga: "Warga", petugas: "Petugas", bendahara: "Bendahara", superadmin: "Super Admin" };
-      /* ===== Gerbang peran: warga = publik hanya-lihat. Peran pengurus hanya aktif setelah PIN benar. ===== */
+      var ROLE_LABEL = { warga: "Warga", petugas: "Petugas", bendahara: "Bendahara", admin: "Admin", superadmin: "Super Admin" };
+      /* ===== Gerbang peran: warga = publik hanya-lihat. Peran pengurus hanya aktif setelah PIN benar.
+         Admin = seperti Bendahara dalam mengelola data rumah & semua modul, TAPI tidak bisa
+         mengelola Users, Pengaturan, atau PIN (khusus Super Admin). ===== */
       function isSuper() { return state.role === "superadmin"; }
-      function isBendahara() { return state.role === "bendahara" || state.role === "superadmin"; }
-      function isPengurus() { return state.role === "petugas" || state.role === "bendahara" || state.role === "superadmin"; }
+      function isBendahara() { return state.role === "bendahara" || state.role === "admin" || state.role === "superadmin"; }
+      function isPengurus() { return state.role === "petugas" || state.role === "bendahara" || state.role === "admin" || state.role === "superadmin"; }
       function canCatat() { return isPengurus(); }              /* catat/ubah/batal setoran jimpitan */
       function canKelola() { return isBendahara(); }            /* verifikasi, kas keluar, rumah, modul RT/RW */
       function canTab(tab) {
         if (state.role === "warga") return tab === "beranda" || tab === "kas" || tab === "rtrw" || tab === "laporan";
-        if (state.role === "petugas") return tab !== "deploy" && tab !== "admin";
-        if (state.role === "bendahara") return tab !== "deploy" && tab !== "admin";
-        return true; /* superadmin: semua tab */
+        if (state.role === "superadmin") return true;
+        return tab !== "pengaturan" && tab !== "users"; /* petugas, bendahara, admin: semua tab kecuali Pengaturan & Users */
       }
       function visibleTabs() { return TABS.filter(function (t) { return canTab(t.id); }); }
       var TABS = [
@@ -1289,8 +1317,8 @@
         { id: "kas", label: "Kas", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/><path d="M6 12h.01M18 12h.01"/></svg>' },
         { id: "laporan", label: "Laporan", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10"/></svg>' },
         { id: "rtrw", label: "RT/RW", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 21h18"/><path d="M5 21V7l7-4 7 4v14"/><path d="M9 21v-6h6v6"/></svg>' },
-        { id: "deploy", label: "Deploy", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg>' },
-        { id: "admin", label: "Super Admin", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-3.6 8-10V5l-8-3-8 3v7c0 6.4 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>' }
+        { id: "users", label: "Users", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>' },
+        { id: "pengaturan", label: "Pengaturan", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-3.6 8-10V5l-8-3-8 3v7c0 6.4 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>' }
       ];
       function badge(tone, text) {
         return '<span class="badge badge-' + tone + '">' + esc(text) + "</span>";
@@ -1304,20 +1332,32 @@
         return h ? ("Rumah " + h.nomor + " · " + h.namaPenghuni) : "(rumah terhapus)";
       }
 
-      /* Menu sidebar admin (desktop) — mengikuti tampilan SI-RT/RW Digital V2 */
+      /* Menu sidebar admin (desktop) — mengikuti tampilan SI-RT/RW Digital V2:
+         entri tingkat atas yang diratakan; tiap entri Modul RT/RW membuka
+         subtab yang sama (bilah subtab di dalam tampilan tetap ada). */
       var SIDE = [
         { tab: "beranda", label: "Dashboard", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg>' },
         { tab: "keliling", label: "Jimpitan Harian", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>' },
         { tab: "rumah", label: "Data Rumah", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></svg>' },
+        { tab: "rtrw", sec: "profil", label: "Profil Warga", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>' },
+        { tab: "rtrw", sec: "profil", filter: "pindah", label: "Warga Pindah", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></svg>' },
+        { tab: "rtrw", sec: "profil", filter: "meninggal", label: "Warga Meninggal", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg>' },
         { tab: "kas", label: "Arus Kas", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/><path d="M6 12h.01M18 12h.01"/></svg>' },
-        { tab: "rtrw", label: "Modul RT/RW", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 21h18"/><path d="M5 21V7l7-4 7 4v14"/><path d="M9 21v-6h6v6"/></svg>' },
+        { tab: "rtrw", sec: "iuran", label: "Ceklist Iuran", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>' },
+        { tab: "rtrw", sec: "aset", label: "Aset & Inventaris", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>' },
+        { tab: "rtrw", sec: "surat", label: "Layanan Warga", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 13h6M9 17h6"/></svg>' },
+        { tab: "rtrw", sec: "agenda", label: "Agenda & Pengumuman", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>' },
+        { tab: "rtrw", sec: "umkm", label: "Daftar UMKM", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 9l1.5-5h15L21 9"/><path d="M3 9h18v11H3z"/><path d="M9 20v-6h6v6"/></svg>' },
+        { tab: "rtrw", sec: "broadcast", label: "Broadcast WA", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></svg>' },
         { tab: "laporan", label: "Laporan", sepBefore: true, icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3v18h18"/><path d="M7 15v3M12 10v8M17 6v12"/></svg>' },
-        { tab: "deploy", label: "Deploy Vercel", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg>', superOnly: true },
-        { tab: "admin", label: "Super Admin", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-3.6 8-10V5l-8-3-8 3v7c0 6.4 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>', superOnly: true }
+        { tab: "users", label: "Users", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>', superOnly: true },
+        { tab: "pengaturan", label: "Pengaturan", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-3.6 8-10V5l-8-3-8 3v7c0 6.4 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>', superOnly: true }
       ];
       function sideActive(it) {
         if (it.tab !== state.tab) return false;
-        if (it.sec) return ui.rtSec === it.sec;
+        if (it.sec && ui.rtSec !== it.sec) return false;
+        if (it.filter) return ui.pfFilter === it.filter;
+        if (it.sec === "profil") return ui.pfFilter !== "pindah" && ui.pfFilter !== "meninggal";
         return true;
       }
 
@@ -1330,7 +1370,9 @@
           ? "Anda masuk sebagai Petugas: hanya mencatat setoran jimpitan saat keliling. Verifikasi, kas keluar, data rumah, dan modul RT/RW tidak bisa diubah dari peran ini. Sesi tersimpan di perangkat ini — refresh tidak perlu memasukkan PIN lagi; akhiri lewat tombol Keluar."
           : state.role === "bendahara"
             ? "Anda masuk sebagai Bendahara: memverifikasi setoran, mencatat pengeluaran, mengelola data rumah dan seluruh modul RT/RW. Pengaturan sistem, PIN, cadangan, dan deploy khusus Super Admin. Sesi tersimpan di perangkat ini — refresh tidak perlu memasukkan PIN lagi; akhiri lewat tombol Keluar."
-            : state.role === "superadmin"
+            : state.role === "admin"
+              ? "Anda masuk sebagai Admin: mengelola data rumah dan seluruh modul RT/RW seperti Bendahara — mencatat & memverifikasi setoran, kas, dan ceklis iuran. Users, Pengaturan, dan PIN khusus Super Admin. Sesi tersimpan di perangkat ini — refresh tidak perlu memasukkan PIN lagi; akhiri lewat tombol Keluar."
+              : state.role === "superadmin"
               ? "Anda masuk sebagai Super Admin: mengelola SELURUH sistem — semua data, pengaturan RT, PIN semua peran, audit log, cadangan data, dan deploy. Sesi tersimpan di perangkat ini — refresh tidak perlu memasukkan PIN lagi; gunakan tombol Keluar setelah selesai."
               : "Mode Warga (publik): siapa pun yang membuka tautan ini hanya bisa MELIHAT transparansi kas, pengumuman, agenda, dan UMKM — plus mengajukan surat & pengaduan atas namanya sendiri, dan masuk ke menu Iuran Saya (nama kepala keluarga + nomor HP terdaftar) untuk mengecek tunggakan & membayar iuran KK-nya sendiri. Semua tombol ubah/hapus/verifikasi disembunyikan dan terkunci. Pengurus masuk dengan PIN lewat tombol di kanan atas.";
         var html = "";
@@ -1356,6 +1398,15 @@
         }
         html += "</div></div>";
         html += '<p class="role-note">' + roleNote + "</p>";
+        if (state.role === "warga" && state.tab === "beranda") {
+          html += '<nav class="public-nav" aria-label="Navigasi halaman">' +
+            '<a href="#bagian-beranda">Beranda</a>' +
+            '<a href="#bagian-umkm">UMKM Warga</a>' +
+            '<a href="#bagian-jadwal">Jadwal</a>' +
+            '<a href="#bagian-pengumuman">Pengumuman</a>' +
+            '<a href="#bagian-layanan">Layanan</a>' +
+            '<a href="#bagian-kontak">Kontak</a></nav>';
+        }
         html += '<nav class="tabs-desktop" aria-label="Menu utama">';
         tabs.forEach(function (t) {
           html += '<button type="button" data-act="tab" data-tab="' + t.id + '"' +
@@ -1373,6 +1424,7 @@
             if (it.sepBefore) html += "<hr>";
             html += '<button type="button" data-act="side" data-tab="' + it.tab + '"' +
               (it.sec ? ' data-sec="' + it.sec + '"' : "") +
+              (it.filter ? ' data-filter="' + it.filter + '"' : "") +
               (sideActive(it) ? ' aria-current="page"' : "") + ">" + it.icon + "<span>" + it.label + "</span>" +
               (it.tab === "keliling" && pc > 0 ? '<span class="pill-count num">' + pc + "</span>" : "") +
               "</button>";
@@ -1398,8 +1450,8 @@
         else if (state.tab === "kas") html += viewKas();
         else if (state.tab === "laporan") html += viewLaporan();
         else if (state.tab === "rtrw") html += viewRTRW();
-        else if (state.tab === "deploy") html += viewDeploy();
-        else if (state.tab === "admin") html += viewAdmin();
+        else if (state.tab === "pengaturan") html += viewAdmin();
+        else if (state.tab === "users") html += viewUsers();
         html += "</div></div></div></main>";
         if (ui.loginOpen) html += viewLogin();
         if (ui.cloudConfirm) html += viewCloudConfirm();
@@ -1531,7 +1583,7 @@
         var html = '<div class="stack-lg">';
 
         /* --- Hero publik --- */
-        html += '<section class="hero"><p class="kicker">Sistem Informasi RT/RW Digital</p>' +
+        html += '<section class="hero" id="bagian-beranda"><p class="kicker">Sistem Informasi RT/RW Digital</p>' +
           "<h1>Bersama Warga, Membangun Lingkungan yang Nyaman dan Harmonis</h1>" +
           '<p class="lead">Selamat datang di portal digital ' + esc(s.namaRt) +
           (s.wilayah ? " · " + esc(s.wilayah) : "") +
@@ -1606,7 +1658,7 @@
           /* Pintu masuk warga ke login anggota: cek tunggakan & bayar iuran KK sendiri. */
           layanan.unshift({ icon: IC.iuran, t: "Cek & Bayar Iuran Saya", d: "Masuk dengan nama kepala keluarga + nomor HP terdaftar untuk melihat tunggakan dan membayar iuran KK Anda", tab: "rtrw", sec: "bayar" });
         }
-        html += "<section>" + secHead(IC.kas, "Layanan Cepat") + '<div class="layanan">';
+        html += '<section id="bagian-layanan">' + secHead(IC.kas, "Layanan Cepat") + '<div class="layanan">';
         layanan.forEach(function (l) {
           var ll = l;
           if (state.role === "warga" && l.tab === "keliling") {
@@ -1632,14 +1684,14 @@
         var agendaT = state.agenda.filter(function (a) { return a.tanggal >= todayStr() && a.status !== "batal"; })
           .sort(function (a, b) { return a.tanggal < b.tanggal ? -1 : 1; }).slice(0, 3);
         html += '<div class="grid2" style="align-items:start">';
-        html += "<section>" + secHead(IC.umum, "Pengumuman") + '<div class="list">';
+        html += '<section id="bagian-pengumuman">' + secHead(IC.umum, "Pengumuman") + '<div class="list">';
         if (umumT.length === 0) html += '<p class="empty">Belum ada pengumuman.</p>';
         umumT.forEach(function (u) {
           html += '<div class="row-item"><div><p class="t">' + esc(u.judul) + '</p><p class="s">' +
             esc(fmtSingkat(u.tanggal)) + "</p>" + (u.isi ? '<p class="s" style="font-size:.875rem">' + esc(u.isi) + "</p>" : "") + "</div></div>";
         });
         html += "</div></section>";
-        html += "<section>" + secHead(IC.agenda, "Jadwal & Agenda Terdekat") + '<div class="list">';
+        html += '<section id="bagian-jadwal">' + secHead(IC.agenda, "Jadwal & Agenda Terdekat") + '<div class="list">';
         if (agendaT.length === 0) html += '<p class="empty">Belum ada agenda mendatang.</p>';
         agendaT.forEach(function (a) {
           html += '<div class="row-item"><div><p class="t">' + esc(a.judul) + '</p><p class="s">' +
@@ -1649,7 +1701,7 @@
         html += "</div></section></div>";
 
         /* --- Direktori UMKM --- */
-        html += "<section>" + secHead(IC.umkm, "Direktori UMKM Warga") + '<div class="list">';
+        html += '<section id="bagian-umkm">' + secHead(IC.umkm, "Direktori UMKM Warga") + '<div class="list">';
         if (state.umkm.filter(function (u) { return u.status !== "batal"; }).length === 0) html += '<p class="empty">Belum ada UMKM terdaftar. Bendahara bisa menambahkan dari menu UMKM.</p>';
         state.umkm.filter(function (u) { return u.status !== "batal"; }).slice(0, 6).forEach(function (u) {
           html += '<div class="row-item"><div><p class="t">' + esc(u.namaUsaha) + '</p><p class="s">' +
@@ -1727,6 +1779,20 @@
             rp(e.jumlah) + "</p></div>";
         });
         html += "</div></section></div>";
+
+        /* --- Kontak RT --- */
+        html += '<section class="card" id="bagian-kontak">' + secHead(IC.warga, "Kontak " + s.namaRt);
+        if (peng.length > 0) {
+          html += '<p class="sub">Hubungi pengurus ' + esc(s.namaRt) + (s.wilayah ? " · " + esc(s.wilayah) : "") + ' lewat WhatsApp:</p><div class="list">';
+          peng.forEach(function (pg) {
+            html += '<div class="row-item"><div><p class="t">' + esc(pg.nama) + '</p><p class="s">' + esc(pg.jabatan) + "</p></div>" +
+              (pg.noHp ? '<a class="btn btn-primary" href="https://wa.me/' + waNum(pg.noHp) + '" target="_blank" rel="noopener">WhatsApp</a>' : "") + "</div>";
+          });
+          html += "</div>";
+        } else {
+          html += '<p class="sub">Belum ada kontak pengurus yang ditampilkan — pengurus bisa diisi di Pengaturan (bagian Pengurus RT di halaman depan).</p>';
+        }
+        html += "</section>";
 
         html += "</div>";
         return html;
@@ -1931,12 +1997,12 @@
         });
         html += "</div>";
         if (!canWrite) {
-          html += '<p class="sub">Mode lihat saja untuk peran ' + esc(ROLE_LABEL[state.role]) + " — tambah/ubah data rumah hanya oleh Bendahara dan Super Admin.</p>";
+          html += '<p class="sub">Mode lihat saja untuk peran ' + esc(ROLE_LABEL[state.role]) + " — tambah/ubah data rumah hanya oleh Admin, Bendahara, dan Super Admin.</p>";
         }
         if (isSuper()) {
-          html += '<div class="card"><h2 class="sec">Pengaturan RT ada di Super Admin</h2>' +
-            '<p class="sub">Nama RT, nominal jimpitan &amp; iuran, PIN peran, dan audit log kini terpusat di tab Super Admin.</p>' +
-            '<div class="actions-row"><button type="button" class="btn btn-primary" data-act="tab" data-tab="admin">Buka Super Admin</button></div></div>';
+          html += '<div class="card"><h2 class="sec">Pengaturan RT ada di Pengaturan</h2>' +
+            '<p class="sub">Nama RT, nominal jimpitan &amp; iuran, PIN peran, dan audit log kini terpusat di menu Pengaturan.</p>' +
+            '<div class="actions-row"><button type="button" class="btn btn-primary" data-act="tab" data-tab="pengaturan">Buka Pengaturan</button></div></div>';
         }
         html += "</div>";
         return html;
@@ -2338,7 +2404,7 @@
               (ui.wEdit ? "Simpan perubahan" : "Simpan warga") + "</button>" +
               (ui.wEdit ? '<button type="button" class="btn btn-ghost" data-act="warga-cancel">Batal ubah</button>' : "") + "</div></form>";
             html += '<div class="card"><h2 class="sec">Impor data yang sudah ada (CSV)</h2>' +
-              '<p class="sub">Punya data warga/iuran lama di spreadsheet? Simpan sebagai CSV lalu impor di sini. Format warga: <span class="mono">nama,alamat,noHp</span> (baris pertama judul kolom). Format iuran: <span class="mono">nama,bulan,jumlah</span> dengan bulan <span class="mono">YYYY-MM</span> — nama harus sama dengan data warga. Impor cadangan JSON lengkap tetap lewat tab Deploy.</p>' +
+              '<p class="sub">Punya data warga/iuran lama di spreadsheet? Simpan sebagai CSV lalu impor di sini. Format warga: <span class="mono">nama,alamat,noHp</span> (baris pertama judul kolom). Format iuran: <span class="mono">nama,bulan,jumlah</span> dengan bulan <span class="mono">YYYY-MM</span> — nama harus sama dengan data warga. Impor cadangan JSON lengkap tetap lewat Pengaturan.</p>' +
               '<div class="actions-row">' +
               '<label class="btn btn-ghost" for="csv-warga" style="cursor:pointer">Impor CSV warga…</label>' +
               '<input id="csv-warga" type="file" accept=".csv,text/csv" class="sr-only" data-file="csv-warga">' +
@@ -2740,26 +2806,43 @@
             (!storageOk ? '<p class="err" style="margin-top:.75rem">Penyimpanan browser tidak tersedia di jendela ini (mode privat/incognito “Samaran”, atau penyimpanan diblokir). PIN dan sesi masuk TIDAK bisa disimpan, jadi refresh akan meminta penyiapan dari awal lagi. Buka halaman ini di jendela browser biasa supaya PIN dan sesi tersimpan.</p>' : "") +
             '<div class="actions-row"><button type="submit" class="btn btn-primary">Simpan PIN &amp; masuk sebagai Super Admin</button>' +
             '<button type="button" class="btn btn-ghost" data-act="login-close">Batal</button></div>' +
-            '<p class="hint" style="margin-top:.75rem">Setelah PIN dibuat, Anda langsung masuk sebagai Super Admin dan sesi itu tersimpan di perangkat ini: refresh, menutup tab, atau membuka lagi halaman ini tidak meminta PIN dari awal — sesi berakhir hanya bila Anda menekan tombol Keluar. PIN tersimpan hanya di perangkat ini dan ikut ter-ekspor di file cadangan JSON (cadangan versi 4). Karena versi ini statis tanpa server, perlindungan ini mencegah warga biasa mengubah data dari tautan publik; keamanan penuh antarperangkat membutuhkan versi server.</p>' +
+            '<p class="hint" style="margin-top:.75rem">Setelah PIN dibuat, Anda langsung masuk sebagai Super Admin dan sesi itu tersimpan di perangkat ini: refresh, menutup tab, atau membuka lagi halaman ini tidak meminta PIN dari awal — sesi berakhir hanya bila Anda menekan tombol Keluar. PIN tersimpan hanya di perangkat ini dan ikut ter-ekspor di file cadangan JSON (cadangan versi 5). Pengguna tambahan (Admin, Bendahara, Petugas, atau Warga) bisa ditambah nanti di menu Users oleh Super Admin. Karena versi ini statis tanpa server, perlindungan ini mencegah warga biasa mengubah data dari tautan publik; keamanan penuh antarperangkat membutuhkan versi server.</p>' +
             "</form></div>";
+        }
+        var loginUsers = state.users.filter(function (u) { return u.peran === ui.loginRole && u.aktif !== false; });
+        var loginBuiltIn = ["petugas", "bendahara", "superadmin"].indexOf(ui.loginRole) >= 0;
+        var loginNamed = null;
+        if (ui.loginUser) {
+          state.users.forEach(function (x) { if (String(x.id) === String(ui.loginUser)) loginNamed = x; });
         }
         var html = '<div class="modal-overlay"><form class="modal-card" data-form="login">' +
           '<h2 class="sec" style="font-size:1.125rem">Masuk sebagai Pengurus</h2>' +
           '<p class="sub">Tautan publik ini terbuka untuk warga dalam mode hanya-lihat. Untuk mencatat atau mengubah data, masuk dengan peran dan PIN Anda. PIN dibuat oleh Super Admin saat penyiapan pertama dan hanya diketahui pengurus yang bersangkutan.</p>' +
           '<div style="margin-top:1rem"><label class="lbl" for="login-role">Peran</label>' +
           '<select id="login-role" class="inp" data-bind-sel="loginRole">' +
-          ["petugas", "bendahara", "superadmin"].map(function (r) {
+          ["petugas", "bendahara", "admin", "superadmin", "warga"].map(function (r) {
             return '<option value="' + r + '"' + (ui.loginRole === r ? " selected" : "") + ">" + ROLE_LABEL[r] + "</option>";
           }).join("") + "</select></div>" +
-          '<div style="margin-top:.75rem"><label class="lbl" for="login-nama">Nama Anda</label>' +
-          '<input id="login-nama" type="text" class="inp" placeholder="mis. Pak Budi" value="' + esc(ui.loginNama) + '" data-bind="loginNama"></div>' +
-          '<div style="margin-top:.75rem"><label class="lbl" for="login-pin">PIN peran</label>' +
+          '<div style="margin-top:.75rem"><label class="lbl" for="login-user">Akun</label>' +
+          '<select id="login-user" class="inp" data-bind-sel="loginUser">' +
+          (loginBuiltIn ? '<option value="">Akun ' + ROLE_LABEL[ui.loginRole] + ' (PIN peran)</option>' : "") +
+          loginUsers.map(function (u) {
+            return '<option value="' + u.id + '"' + (String(ui.loginUser) === String(u.id) ? " selected" : "") + ">" + esc(u.nama) + (u.hp ? " · " + esc(u.hp) : "") + "</option>";
+          }).join("") +
+          (!loginBuiltIn && loginUsers.length === 0 ? '<option value="" disabled>Belum ada pengguna ' + ROLE_LABEL[ui.loginRole] + '</option>' : "") +
+          "</select></div>" +
+          (!loginBuiltIn && loginUsers.length === 0
+            ? '<p class="hint" style="margin-top:.5rem">Belum ada pengguna ' + ROLE_LABEL[ui.loginRole] + ' yang aktif — Super Admin bisa menambahkannya di menu Users.</p>' : "") +
+          (loginNamed ? "" :
+            '<div style="margin-top:.75rem"><label class="lbl" for="login-nama">Nama Anda</label>' +
+            '<input id="login-nama" type="text" class="inp" placeholder="mis. Pak Budi" value="' + esc(ui.loginNama) + '" data-bind="loginNama"></div>') +
+          '<div style="margin-top:.75rem"><label class="lbl" for="login-pin">PIN ' + (loginNamed ? "pengguna" : "peran") + '</label>' +
           '<input id="login-pin" type="password" inputmode="numeric" autocomplete="off" class="inp" placeholder="PIN angka" value="' + esc(ui.loginPin) + '" data-bind="loginPin"></div>' +
           (ui.loginError ? '<p class="field-err">' + esc(ui.loginError) + "</p>" : "") +
           (!storageOk ? '<p class="err" style="margin-top:.75rem">Penyimpanan browser tidak tersedia di jendela ini (mode privat/incognito “Samaran”, atau penyimpanan diblokir). Anda tetap bisa masuk, tetapi sesi tidak tersimpan — refresh akan meminta PIN lagi. Buka halaman ini di jendela browser biasa supaya sesi bertahan setelah refresh.</p>' : "") +
           '<div class="actions-row"><button type="submit" class="btn btn-primary">Masuk</button>' +
           '<button type="button" class="btn btn-ghost" data-act="login-close">Batal — tetap sebagai Warga</button></div>' +
-          '<p class="hint" style="margin-top:.75rem">Setelah masuk, sesi Anda tersimpan di perangkat ini: refresh atau membuka lagi halaman ini tidak meminta PIN ulang, sampai Anda menekan tombol Keluar. Lupa PIN? Super Admin bisa mengganti PIN semua peran di tab Super Admin. Karena versi ini statis tanpa server, PIN tersimpan di perangkat ini — perlindungan ini mencegah warga biasa mengubah data dari tautan publik; untuk keamanan penuh antarperangkat gunakan versi server.</p>' +
+          '<p class="hint" style="margin-top:.75rem">Setelah masuk, sesi Anda tersimpan di perangkat ini: refresh atau membuka lagi halaman ini tidak meminta PIN ulang, sampai Anda menekan tombol Keluar. Lupa PIN peran? Super Admin bisa menggantinya di Pengaturan; PIN pengguna bernama diganti di menu Users. Karena versi ini statis tanpa server, PIN tersimpan di perangkat ini — perlindungan ini mencegah warga biasa mengubah data dari tautan publik; untuk keamanan penuh antarperangkat gunakan versi server.</p>' +
           "</form></div>";
         return html;
       }
@@ -2773,19 +2856,20 @@
         var d = dashboard();
         var html = '<div class="stack-lg">';
         html += "<section><h2 class=\"sec\">Super Admin — Kendali Penuh Sistem</h2>" +
-          '<p class="sub">Super Admin mengelola semua yang bisa dilakukan Petugas dan Bendahara, ditambah pengaturan RT, PIN semua peran, audit log, cadangan data, dan deploy. Hak akses tiap peran:</p>' +
+          '<p class="sub">Super Admin mengelola semua yang bisa dilakukan Petugas, Bendahara, dan Admin, ditambah Users, pengaturan RT, PIN semua peran, audit log, cadangan data, dan deploy. Hak akses tiap peran:</p>' +
           '<div class="card" style="margin-top:.75rem;overflow-x:auto"><table class="access-table"><thead><tr>' +
-          "<th>Kemampuan</th><th class=\"c\">Warga</th><th class=\"c\">Petugas</th><th class=\"c\">Bendahara</th><th class=\"c\">Super Admin</th></tr></thead><tbody>" +
+          "<th>Kemampuan</th><th class=\"c\">Warga</th><th class=\"c\">Petugas</th><th class=\"c\">Bendahara</th><th class=\"c\">Admin</th><th class=\"c\">Super Admin</th></tr></thead><tbody>" +
           [
-            ["Melihat beranda, transparansi kas, pengumuman, agenda, UMKM", "✓", "✓", "✓", "✓"],
-            ["Mengajukan surat & pengaduan atas nama sendiri", "✓", "✓", "✓", "✓"],
-            ["Mencatat / mengubah / membatalkan setoran jimpitan", "—", "✓", "✓", "✓"],
-            ["Verifikasi setoran", "—", "—", "✓", "✓"],
-            ["Data rumah, pengeluaran kas, ceklis iuran, modul RT/RW", "—", "—", "✓", "✓"],
-            ["Pengaturan RT, ganti PIN semua peran, audit log", "—", "—", "—", "✓"],
-            ["Impor cadangan (menimpa data) & deploy", "—", "—", "—", "✓"]
+            ["Melihat beranda, transparansi kas, pengumuman, agenda, UMKM", "✓", "✓", "✓", "✓", "✓"],
+            ["Mengajukan surat & pengaduan atas nama sendiri", "✓", "✓", "✓", "✓", "✓"],
+            ["Mencatat / mengubah / membatalkan setoran jimpitan", "—", "✓", "✓", "✓", "✓"],
+            ["Verifikasi setoran", "—", "—", "✓", "✓", "✓"],
+            ["Data rumah, pengeluaran kas, ceklis iuran, modul RT/RW", "—", "—", "✓", "✓", "✓"],
+            ["Mengelola Users (tambah pengguna & PIN pengguna)", "—", "—", "—", "—", "✓"],
+            ["Pengaturan RT, ganti PIN semua peran, audit log", "—", "—", "—", "—", "✓"],
+            ["Impor cadangan (menimpa data) & deploy", "—", "—", "—", "—", "✓"]
           ].map(function (r) {
-            return "<tr><td>" + r[0] + '</td><td class="c">' + r[1] + '</td><td class="c">' + r[2] + '</td><td class="c">' + r[3] + '</td><td class="c">' + r[4] + "</td></tr>";
+            return "<tr><td>" + r[0] + '</td><td class="c">' + r[1] + '</td><td class="c">' + r[2] + '</td><td class="c">' + r[3] + '</td><td class="c">' + r[4] + '</td><td class="c">' + r[5] + "</td></tr>";
           }).join("") +
           "</tbody></table></div></section>";
         html += '<section><div class="stats">' +
@@ -2818,9 +2902,85 @@
             esc(a.waktu) + " · " + esc(a.peran) + " · " + esc(a.nama) + "</p></div></div>";
         });
         html += "</div></section>";
-        html += '<section class="card"><h2 class="sec">Cadangan &amp; deploy</h2>' +
-          '<p class="sub">Ekspor/impor cadangan dan panduan deploy ada di tab Deploy — di peran Super Admin tombol impor aktif penuh. Impor menimpa seluruh data di perangkat ini, jadi khusus Super Admin.</p>' +
-          '<div class="actions-row"><button type="button" class="btn btn-primary" data-act="tab" data-tab="deploy">Buka tab Deploy &amp; Cadangan</button></div></section>';
+        /* Deploy & cadangan kini di dalam Pengaturan (dulu tab Deploy tersendiri). */
+        html += viewDeploy();
+        html += "</div>";
+        return html;
+      }
+
+      /* PIN pengguna tidak boleh sama dengan PIN akun lain (akun bawaan peran
+         maupun pengguna bernama lain) — satu PIN hanya untuk satu akun. */
+      function pinSudahDipakai(pin, kecualiId) {
+        var p = String(pin);
+        var ada = false;
+        ["petugas", "bendahara", "superadmin"].forEach(function (k) {
+          if (state.pins[k] && String(state.pins[k]) === p) ada = true;
+        });
+        (state.users || []).forEach(function (u) {
+          if (String(u.pin) === p && String(u.id) !== String(kecualiId == null ? "" : kecualiId)) ada = true;
+        });
+        return ada;
+      }
+
+      /* ================= Users (khusus Super Admin) ================= */
+      function viewUsers() {
+        if (!isSuper()) {
+          return '<div class="lock-note"><h2 class="sec">Khusus Super Admin</h2>' +
+            '<p class="sub">Menu Users hanya terbuka untuk peran Super Admin.</p></div>';
+        }
+        var html = '<div class="stack-lg">';
+        html += '<section><h2 class="sec">Users — Pengguna Sistem</h2>' +
+          '<p class="sub">Tambah akun Admin, Bendahara, Petugas, atau Warga di sini — bukan saat penyiapan awal. Akun Warga hanya untuk pengguna Warga yang dibuat Super Admin. Tidak ada hapus pengguna: akun yang sudah tidak bertugas cukup dinonaktifkan, dan pengguna nonaktif tidak bisa masuk lagi.</p></section>';
+        /* Form tambah pengguna */
+        html += '<form class="card" data-form="user-add"><p style="margin:0 0 .75rem;font-weight:700">Tambah Pengguna</p><div class="grid2">' +
+          fld("u-nama", "Nama pengguna", "uNama", ui.uNama, "mis. Pak Budi") +
+          '<div><label class="lbl" for="u-peran">Peran</label><select id="u-peran" class="inp" data-bind-sel="uPeran">' +
+          ["admin", "bendahara", "petugas", "warga"].map(function (r) {
+            return '<option value="' + r + '"' + (ui.uPeran === r ? " selected" : "") + ">" + ROLE_LABEL[r] + "</option>";
+          }).join("") + "</select></div>" +
+          fld("u-pin", "PIN (4–6 angka)", "uPin", ui.uPin, "", "password") +
+          fld("u-pinconf", "Konfirmasi PIN", "uPinConf", ui.uPinConf, "", "password") +
+          fld("u-hp", "No. HP / WhatsApp (boleh kosong)", "uHp", ui.uHp, "08…") +
+          "</div>" +
+          (ui.uError ? '<p class="field-err">' + esc(ui.uError) + "</p>" : "") +
+          (ui.uDone ? '<p class="ok-note">Pengguna ditambahkan — akun sudah bisa dipakai masuk dengan PIN-nya.</p>' : "") +
+          '<div class="actions-row"><button type="submit" class="btn btn-primary">Simpan pengguna</button></div>' +
+          '<p class="hint">PIN pengguna disimpan dengan cara yang sama seperti PIN peran di versi statis ini (di perangkat, ikut tersinkron ke Turso dan tercakup cadangan JSON). Berikan PIN hanya kepada pemilik akunnya.</p></form>';
+        /* Tabel pengguna */
+        html += '<section><h2 class="sec">Pengguna tambahan (' + state.users.length + ')</h2><div class="list" style="margin-top:.75rem">';
+        if (state.users.length === 0) html += '<p class="empty">Belum ada pengguna tambahan — semua pengurus masih memakai akun bawaan peran di bawah.</p>';
+        state.users.slice().sort(function (a, b) { return a.nama.localeCompare(b.nama, "id"); }).forEach(function (u) {
+          var aktif = u.aktif !== false;
+          html += '<div class="card" style="padding:.75rem 1rem"><div style="display:flex;justify-content:space-between;gap:.75rem;align-items:flex-start;flex-wrap:wrap"><div>' +
+            '<p class="t" style="font-size:.9375rem;font-weight:700;margin:0">' + esc(u.nama) + '</p>' +
+            '<p class="s">' + esc(ROLE_LABEL[u.peran] || u.peran) + (u.hp ? " · " + esc(u.hp) : "") + " · dibuat " + esc(u.dibuat ? fmtSingkat(u.dibuat) : "-") + "</p></div>" +
+            '<div style="display:flex;gap:.375rem;flex-wrap:wrap;justify-content:flex-end;align-items:center">' +
+            statusBadge(aktif ? "Aktif" : "Nonaktif") +
+            '<button type="button" class="btn btn-ghost" data-act="user-pin-open" data-id="' + u.id + '">Ubah PIN</button>' +
+            '<button type="button" class="btn btn-danger-ghost" data-act="user-toggle" data-id="' + u.id + '">' + (aktif ? "Nonaktifkan" : "Aktifkan") + "</button></div></div>";
+          if (ui.userPinFor === u.id) {
+            html += '<form class="inline-form" data-form="user-pin" style="margin-top:.75rem">' +
+              '<div class="grid2"><div><label class="lbl" for="upin-new">PIN baru ' + esc(u.nama) + ' (4–6 angka)</label>' +
+              '<input id="upin-new" type="password" inputmode="numeric" autocomplete="off" class="inp" value="' + esc(ui.userPinNew || "") + '" data-bind="userPinNew"></div>' +
+              '<div><label class="lbl" for="upin-conf">Konfirmasi PIN baru</label>' +
+              '<input id="upin-conf" type="password" inputmode="numeric" autocomplete="off" class="inp" value="' + esc(ui.userPinConf || "") + '" data-bind="userPinConf"></div></div>' +
+              (ui.userPinError ? '<p class="field-err">' + esc(ui.userPinError) + "</p>" : "") +
+              '<div class="actions-row"><button type="submit" class="btn btn-primary">Simpan PIN baru</button>' +
+              '<button type="button" class="btn btn-ghost" data-act="user-pin-close">Batal</button></div></form>';
+          }
+          html += "</div>";
+        });
+        if (ui.userPinDone) html += '<p class="ok-note">PIN pengguna diperbarui.</p>';
+        html += "</div></section>";
+        /* Akun bawaan peran (read-only) */
+        html += '<section><h2 class="sec">Akun bawaan peran (dari penyiapan pertama)</h2>' +
+          '<p class="sub">Akun ini dibuat saat penyiapan pertama dan tidak bisa diubah di sini — PIN-nya tetap diganti lewat Pengaturan.</p><div class="list" style="margin-top:.75rem">';
+        ["superadmin", "bendahara", "petugas"].forEach(function (r) {
+          html += '<div class="row-item"><div><p class="t">' + ROLE_LABEL[r] + '</p><p class="s">Akun bawaan peran — dipakai semua pemegang peran itu</p></div>' +
+            '<div style="display:flex;gap:.375rem;flex-wrap:wrap;justify-content:flex-end;align-items:center">' +
+            statusBadge(state.pins[r] ? "Aktif" : "Belum dibuat") + "</div></div>";
+        });
+        html += "</div></section>";
         html += "</div>";
         return html;
       }
@@ -2897,7 +3057,7 @@
           "## Soal data",
           "",
           "Versi statis ini menyimpan data di perangkat yang sedang dipakai membuka",
-          "aplikasi. Gunakan tombol Ekspor cadangan (JSON) di tab Deploy secara rutin,",
+          "aplikasi. Gunakan tombol Ekspor cadangan (JSON) di Pengaturan secara rutin,",
           "dan Impor cadangan untuk memindahkan data ke perangkat lain. Untuk data",
           "yang harus tersinkron otomatis antarperangkat, pakai versi utama Muse",
           "(berbasis server) atau sambungkan database gratis di langkah berikutnya.",
@@ -3120,6 +3280,9 @@
           state.tab = dest2;
           var sec = t.getAttribute("data-sec");
           if (sec) ui.rtSec = sec;
+          var pf = t.getAttribute("data-filter");
+          if (pf) ui.pfFilter = pf;
+          else if (sec === "profil") ui.pfFilter = "semua";
           ui.error = ""; ui.rtError = ""; ui.rtDone = "";
           render(); window.scrollTo(0, 0);
         }
@@ -3127,7 +3290,7 @@
         else if (act === "login-close") { ui.loginOpen = false; ui.loginPin = ""; ui.loginError = ""; render(); }
         else if (act === "logout") {
           logAudit("Keluar dari peran " + ROLE_LABEL[state.role] + " — kembali ke mode Warga.");
-          state.role = "warga"; state.nama = ""; state.tab = "beranda";
+          state.role = "warga"; state.nama = ""; state.userId = null; state.tab = "beranda";
           ui.namaError = ""; ui.error = ""; render(); window.scrollTo(0, 0);
         }
         else if (act === "shift-date") { ui.tanggal = shiftDate(ui.tanggal, Number(t.getAttribute("data-days"))); render(); }
@@ -3380,13 +3543,31 @@
           ui.cloudMsg = "Sinkronisasi ditunda — bila siap, pakai tombol Unggah/Unduh di bagian Sinkronisasi Cloud.";
           render();
         }
+        else if (act === "user-pin-open") {
+          if (!isSuper()) return;
+          ui.userPinFor = Number(t.getAttribute("data-id"));
+          ui.userPinNew = ""; ui.userPinConf = ""; ui.userPinError = ""; ui.userPinDone = false;
+          render();
+        }
+        else if (act === "user-pin-close") { ui.userPinFor = null; ui.userPinError = ""; render(); }
+        else if (act === "user-toggle") {
+          if (!isSuper()) return;
+          var tid = Number(t.getAttribute("data-id"));
+          state.users.forEach(function (x) {
+            if (x.id === tid) {
+              x.aktif = x.aktif === false ? true : false;
+              logAudit("Pengguna " + (x.aktif ? "diaktifkan" : "dinonaktifkan") + ": " + x.nama + " (" + ROLE_LABEL[x.peran] + ").");
+            }
+          });
+          render();
+        }
         else if (act === "dl-vercel") { downloadFile("vercel.json", VERCEL_JSON, "application/json;charset=utf-8"); }
         else if (act === "dl-readme") { downloadFile("README-DEPLOY.md", readmeDeploy(), "text/markdown;charset=utf-8"); }
         else if (act === "backup-export") {
           if (!isPengurus()) { ui.loginOpen = true; ui.loginError = "Ekspor cadangan khusus pengurus. Masuk dulu dengan PIN."; render(); return; }
           var data = {
-            aplikasi: "sistem-jimpitan-warga-rt", versiCadangan: 4, dieksporPada: new Date().toISOString(),
-            settings: state.settings, pins: state.pins, houses: state.houses,
+            aplikasi: "sistem-jimpitan-warga-rt", versiCadangan: 5, dieksporPada: new Date().toISOString(),
+            settings: state.settings, pins: state.pins, users: state.users, houses: state.houses,
             collections: state.collections, expenses: state.expenses,
             warga: state.warga, iuran: state.iuran, aset: state.aset, surat: state.surat,
             pinjam: state.pinjam, aduan: state.aduan, agenda: state.agenda,
@@ -3416,6 +3597,8 @@
       document.addEventListener("change", function (ev) {
         var el = ev.target;
         var selBind = el.getAttribute && el.getAttribute("data-bind-sel");
+        if (selBind === "loginRole") { ui.loginRole = el.value; ui.loginUser = ""; ui.loginPin = ""; ui.loginError = ""; render(); return; }
+        if (selBind === "loginUser") { ui.loginUser = el.value; ui.loginPin = ""; ui.loginError = ""; render(); return; }
         if (selBind && selBind in ui) { ui[selBind] = el.value; return; }
         var bind = el.getAttribute && el.getAttribute("data-bind");
         if (bind === "fStatus") { ui.fStatus = el.value; return; }
@@ -3512,14 +3695,15 @@
                 });
               }
               state.houses = data.houses; state.collections = data.collections; state.expenses = data.expenses;
-              /* Cadangan lama (v1) belum punya modul RT/RW, cadangan v3 belum punya profil/broadcast/bayar — kolom yang tidak ada diisi kosong. */
-              ["warga", "iuran", "aset", "surat", "pinjam", "aduan", "agenda", "umum", "umkm", "audit", "profil", "broadcast", "bayar"].forEach(function (k) {
+              /* Cadangan lama (v1) belum punya modul RT/RW, cadangan v3 belum punya profil/broadcast/bayar, cadangan v4 belum punya users — kolom yang tidak ada diisi kosong. */
+              ["users", "warga", "iuran", "aset", "surat", "pinjam", "aduan", "agenda", "umum", "umkm", "audit", "profil", "broadcast", "bayar"].forEach(function (k) {
                 state[k] = Array.isArray(data[k]) ? data[k] : [];
               });
               state.seq = Number(data.seq) || (state.houses.length + state.collections.length + state.expenses.length + 1);
               ui.backupMsg = "Cadangan berhasil diimpor: " + state.houses.length + " rumah, " +
                 state.collections.length + " catatan setoran, " + state.expenses.length + " pengeluaran, " +
-                state.warga.length + " warga/KK, " + state.profil.length + " profil warga.";
+                state.warga.length + " warga/KK, " + state.profil.length + " profil warga, " +
+                state.users.length + " pengguna.";
               ui.error = "";
             } catch (e) {
               ui.backupMsg = "Gagal mengimpor: file bukan cadangan jimpitan yang valid.";
@@ -3549,11 +3733,36 @@
           ui.setupSuper = ""; ui.setupBendahara = ""; ui.setupPetugas = ""; ui.setupError = "";
           ui.loginOpen = false;
           logAudit("Penyiapan pertama selesai: PIN ketiga peran dibuat oleh pemilik; masuk sebagai Super Admin.");
-          state.tab = "admin";
+          state.tab = "pengaturan";
           render(); window.scrollTo(0, 0);
         }
         else if (kind === "login") {
           var lrole = ui.loginRole;
+          var luser = null;
+          if (ui.loginUser) {
+            state.users.forEach(function (x) { if (String(x.id) === String(ui.loginUser)) luser = x; });
+          }
+          if (luser) {
+            /* Masuk lewat akun pengguna bernama (menu Users). */
+            if (luser.peran !== lrole || luser.aktif === false) {
+              ui.loginError = "Akun pengguna itu sudah tidak aktif atau perannya tidak cocok."; render(); return;
+            }
+            if (String(ui.loginPin).trim() !== String(luser.pin || "")) {
+              ui.loginError = "PIN salah untuk akun " + luser.nama + ". Coba lagi, atau tetap sebagai Warga.";
+              ui.loginPin = ""; render();
+              var lpf2 = document.getElementById("login-pin"); if (lpf2) lpf2.focus();
+              return;
+            }
+            state.role = lrole;
+            state.nama = luser.nama;
+            state.userId = luser.id;
+            ui.loginOpen = false; ui.loginPin = ""; ui.loginError = ""; ui.namaError = "";
+            logAudit("Masuk sebagai " + ROLE_LABEL[lrole] + " (" + luser.nama + ").");
+            if (lrole === "petugas") state.tab = "keliling";
+            render(); window.scrollTo(0, 0);
+            return;
+          }
+          if ((lrole === "admin" || lrole === "warga") && !luser) { ui.loginError = "Pilih dulu akun pengguna " + ROLE_LABEL[lrole] + " — Super Admin bisa menambahkannya di menu Users."; render(); return; }
           if (!state.pins[lrole]) { ui.loginError = "PIN peran " + ROLE_LABEL[lrole] + " belum dibuat. Super Admin perlu menyiapkannya dulu (tutup jendela ini, lalu Masuk sebagai Pengurus untuk penyiapan)."; render(); return; }
           if (!ui.loginNama.trim()) { ui.loginError = "Isi dulu nama Anda."; render(); return; }
           if (String(ui.loginPin).trim() !== String(state.pins[lrole] || "")) {
@@ -3564,10 +3773,11 @@
           }
           state.role = lrole;
           state.nama = ui.loginNama.trim();
+          state.userId = null;
           ui.loginOpen = false; ui.loginPin = ""; ui.loginError = ""; ui.namaError = "";
           logAudit("Masuk sebagai " + ROLE_LABEL[lrole] + ".");
           if (lrole === "petugas") state.tab = "keliling";
-          else if (lrole === "superadmin") state.tab = "admin";
+          else if (lrole === "superadmin") state.tab = "pengaturan";
           render(); window.scrollTo(0, 0);
         }
         else if (kind === "pins") {
@@ -3586,6 +3796,34 @@
           if (changed.length === 0) { ui.pinError = "Tidak ada PIN yang diisi — tidak ada perubahan."; ui.pinDone = false; render(); return; }
           logAudit("PIN diperbarui untuk peran: " + changed.join(", ") + ".");
           ui.pinError = ""; ui.pinDone = true;
+          render();
+        }
+        else if (kind === "user-add") {
+          if (!isSuper()) { ui.uError = "Hanya Super Admin yang bisa menambah pengguna."; render(); return; }
+          if (!ui.uNama.trim()) { ui.uError = "Nama pengguna wajib diisi."; render(); return; }
+          if (["admin", "bendahara", "petugas", "warga"].indexOf(ui.uPeran) < 0) { ui.uError = "Peran tidak dikenal."; render(); return; }
+          if (!/^[0-9]{4,6}$/.test((ui.uPin || "").trim())) { ui.uError = "PIN harus 4–6 angka."; render(); return; }
+          if ((ui.uPin || "").trim() !== (ui.uPinConf || "").trim()) { ui.uError = "Konfirmasi PIN tidak sama."; render(); return; }
+          if (pinSudahDipakai(ui.uPin.trim(), null)) { ui.uError = "PIN itu sudah dipakai akun lain — pakai PIN yang berbeda."; render(); return; }
+          state.users.push({
+            id: nextId(), nama: ui.uNama.trim(), peran: ui.uPeran, pin: ui.uPin.trim(),
+            hp: (ui.uHp || "").trim(), aktif: true, dibuat: todayStr()
+          });
+          logAudit("Pengguna ditambah: " + ui.uNama.trim() + " (" + ROLE_LABEL[ui.uPeran] + ").");
+          ui.uNama = ""; ui.uPin = ""; ui.uPinConf = ""; ui.uHp = ""; ui.uError = ""; ui.uDone = true;
+          render();
+        }
+        else if (kind === "user-pin") {
+          if (!isSuper()) return;
+          var up = null;
+          state.users.forEach(function (x) { if (x.id === ui.userPinFor) up = x; });
+          if (!up) { ui.userPinFor = null; render(); return; }
+          if (!/^[0-9]{4,6}$/.test((ui.userPinNew || "").trim())) { ui.userPinError = "PIN baru harus 4–6 angka."; render(); return; }
+          if ((ui.userPinNew || "").trim() !== (ui.userPinConf || "").trim()) { ui.userPinError = "Konfirmasi PIN tidak sama."; render(); return; }
+          if (pinSudahDipakai(ui.userPinNew.trim(), up.id)) { ui.userPinError = "PIN itu sudah dipakai akun lain — pakai PIN yang berbeda."; render(); return; }
+          up.pin = ui.userPinNew.trim();
+          logAudit("PIN pengguna diubah: " + up.nama + " (" + ROLE_LABEL[up.peran] + ").");
+          ui.userPinFor = null; ui.userPinNew = ""; ui.userPinConf = ""; ui.userPinError = ""; ui.userPinDone = true;
           render();
         }
         else if (kind === "custom") {
