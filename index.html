@@ -474,6 +474,39 @@
         padding: 1rem; text-align: center;
       }
 
+      /* ---------- Notifikasi, demografi, pengurus, pencarian publik ---------- */
+      .bell-btn {
+        position: relative; border: 1px solid var(--border); background: var(--surface);
+        border-radius: 999px; width: 2.5rem; height: 2.5rem; min-height: 2.5rem;
+        display: inline-flex; align-items: center; justify-content: center; color: var(--text);
+      }
+      .bell-btn svg { width: 20px; height: 20px; }
+      .bell-btn .pill-count { top: -0.3rem; right: -0.3rem; }
+      .notif-panel {
+        background: var(--surface); border: 1px solid var(--border); border-radius: 0.5rem;
+        box-shadow: var(--shadow-lg); padding: 1rem; margin-bottom: 1.25rem;
+      }
+      .demo-bar { display: grid; grid-template-columns: 7.5rem 1fr 5.5rem; gap: 0.5rem; align-items: center; font-size: 0.8125rem; }
+      .demo-bar .track { height: 0.625rem; border-radius: 999px; background: var(--surface2); overflow: hidden; }
+      .demo-bar .fill { height: 100%; background: var(--accent); border-radius: 999px; }
+      .demo-bar .n { text-align: right; font-weight: 700; }
+      .pengurus-grid { display: grid; gap: 0.75rem; }
+      @media (min-width: 640px) { .pengurus-grid { grid-template-columns: repeat(3, 1fr); } }
+      .pengurus-card { text-align: center; }
+      .pengurus-card img, .pengurus-card .avatar {
+        width: 5rem; height: 5rem; border-radius: 999px; object-fit: cover;
+        margin: 0 auto 0.5rem; display: flex; align-items: center; justify-content: center;
+        background: rgba(13, 110, 253, 0.12); color: var(--accent);
+        font-size: 1.5rem; font-weight: 800;
+      }
+      .month-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.5rem; }
+      @media (min-width: 640px) { .month-grid { grid-template-columns: repeat(3, 1fr); } }
+      .month-cell {
+        border: 1px solid var(--border); border-radius: 0.375rem; padding: 0.625rem 0.75rem;
+        background: var(--surface); font-size: 0.8125rem;
+      }
+      textarea.inp { min-height: 5rem; resize: vertical; }
+
     </style>
   </head>
   <body>
@@ -523,7 +556,12 @@
         role: "warga",             /* warga (publik, hanya lihat) | petugas | bendahara | superadmin — peran pengurus terkunci PIN */
         nama: "",
         pins: { petugas: "", bendahara: "", superadmin: "" }, /* Kosong di file yang dibagikan — PIN dibuat pemilik saat penyiapan pertama, tidak pernah tertulis di kode */
-        settings: { namaRt: "RT Kami", wilayah: "", nominalBaku: 500, nominalIuran: 20000 },
+        settings: {
+          namaRt: "RT Kami", wilayah: "", nominalBaku: 500, nominalIuran: 20000,
+          saldoAwal: { utama: 0, proyek: 0, kematian: 0 },   /* saldo awal per kas — diisi di Pengaturan */
+          rtList: [],                /* dukungan RW: [{nama, nominalJimpitan, nominalIuran}] — tiap RT bisa beda iuran */
+          pengurus: []               /* [{nama, jabatan, noHp, foto}] — tampil di halaman depan */
+        },
         houses: [],                /* {id, nomor, namaPenghuni, blok, status, catatan} */
         collections: [],           /* {id, houseId, tanggal, total, jimpitan, kelebihan, petugas, status, diverifikasiOleh, alasanBatal} */
         expenses: [],              /* {id, tanggal, keperluan, jumlah, dicatatOleh, keterangan, status, alasanBatal} */
@@ -535,7 +573,10 @@
         aduan: [],                 /* {id, nama, isi, tanggal, status} */
         agenda: [],                /* {id, judul, tanggal, lokasi, keterangan} */
         umum: [],                  /* {id, judul, isi, tanggal} — pengumuman */
-        umkm: [],                  /* {id, namaUsaha, pemilik, kategori, kontak, deskripsi} */
+        umkm: [],                  /* {id, namaUsaha, pemilik, kategori, kontak, deskripsi, status, alasanBatal} */
+        profil: [],                /* {id, houseId, noKK, nik, nama, hubungan, pekerjaan, pendidikan, golonganDarah, tanggalLahir, agama, statusKawin, noHp, statusTinggal, riwayat:[{status,tanggal,alasan,oleh}]} */
+        broadcast: [],             /* {id, tanggal, judul, pesan, oleh, penerima} — log broadcast WA */
+        bayar: [],                 /* {id, wargaId, bulan, jumlah, buktiNama, keterangan, tanggal, status} — pembayaran iuran mandiri warga, menunggu verifikasi bendahara */
         audit: [],                 /* {id, waktu, peran, nama, aksi} */
         seq: 1
       };
@@ -566,7 +607,23 @@
         ukNama: "", ukPemilik: "", ukKategori: "", ukKontak: "", ukDesk: "",
         loginOpen: false, loginRole: "petugas", loginPin: "", loginNama: "", loginError: "",
         setupNama: "", setupSuper: "", setupBendahara: "", setupPetugas: "", setupError: "",
-        pinPetugas: null, pinBendahara: null, pinSuper: null, pinError: "", pinDone: false
+        pinPetugas: null, pinBendahara: null, pinSuper: null, pinError: "", pinDone: false,
+        notifOpen: false,
+        cariWarga: "", cariWargaRun: false,
+        pfEdit: null, pfHouse: "", pfKK: "", pfNik: "", pfNama: "", pfHub: "Kepala Keluarga",
+        pfPekerjaan: "", pfPendidikan: "", pfDarah: "", pfLahir: "", pfAgama: "", pfKawin: "",
+        pfHp: "", pfStatus: "aktif", pfAlasan: "", pfCari: "", pfFilter: "semua",
+        wEdit: null, wStatus: "aktif", wRt: "",
+        aEdit: null, agEdit: null, umEdit: null, ukEdit: null,
+        batalJenis: "", batalId: null, batalReason: "",
+        bcJudul: "", bcPesan: "",
+        myNama: "", myHp: "", myWargaId: null, myBulan: "", myJumlah: "", myBuktiNama: "", myKet: "", myMsg: "", myErr: "",
+        rtNamaBaru: "", rtJimpBaru: "", rtIuranBaru: "",
+        fRt: "",
+        pgNama: "", pgJabatan: "", pgHp: "", pgFoto: "",
+        sSaldoUtama: null, sSaldoProyek: null, sSaldoKematian: null,
+        eKas: "utama",
+        houseArsipFor: null, houseArsipReason: ""
       };
 
       function nextId() { return state.seq++; }
@@ -604,13 +661,86 @@
         }
         return null;
       }
+      function profilById(id) {
+        for (var i = 0; i < state.profil.length; i++) if (state.profil[i].id === id) return state.profil[i];
+        return null;
+      }
+      function waNum(noHp) {
+        var d = String(noHp || "").replace(/[^0-9]/g, "");
+        if (d.indexOf("0") === 0) d = "62" + d.slice(1);
+        return d;
+      }
+      function umurDari(tgl) {
+        if (!tgl) return null;
+        var b = new Date(tgl + "T00:00:00"), n = new Date();
+        var u = n.getFullYear() - b.getFullYear();
+        if (n.getMonth() < b.getMonth() || (n.getMonth() === b.getMonth() && n.getDate() < b.getDate())) u--;
+        return u < 0 ? null : u;
+      }
+      function rtEntry(nama) {
+        var list = state.settings.rtList || [];
+        for (var i = 0; i < list.length; i++) if (list[i].nama === nama) return list[i];
+        return null;
+      }
+      function nominalRumah(h) {
+        var e = h && h.rt ? rtEntry(h.rt) : null;
+        return e && e.nominalJimpitan > 0 ? e.nominalJimpitan : state.settings.nominalBaku;
+      }
+      function nominalIuranWarga(w) {
+        var e = w && w.rt ? rtEntry(w.rt) : null;
+        return e && e.nominalIuran >= 0 ? e.nominalIuran : (state.settings.nominalIuran || 20000);
+      }
+      function profilAktif() {
+        return state.profil.filter(function (p) { return (p.statusTinggal || "aktif") === "aktif"; });
+      }
+      /* Bukti transfer dihitung "menunggu verifikasi" HANYA bila belum diputuskan
+         DAN bulan itu belum tercatat lunas. Tanpa cek iuran ini, pembayaran yang
+         sudah lunas (mis. bendahara menandai lunas langsung dari ceklis iuran)
+         tetap dihitung lonceng sebagai menunggu — angka lonceng bertentangan
+         dengan status warga & dashboard. */
+      function bayarMenunggu(b) {
+        return b.status === "menunggu" && !iuranOf(b.wargaId, b.bulan);
+      }
+      function pendingBayar() { return state.bayar.filter(bayarMenunggu); }
+      function notifItems() {
+        var items = [];
+        state.aduan.forEach(function (a) {
+          if (a.status === "Baru") items.push({ label: "Pengaduan baru dari " + a.nama + ": " + a.isi, tab: "rtrw", sec: "aduan" });
+        });
+        state.surat.forEach(function (s) {
+          if (s.status === "Diajukan") items.push({ label: "Permohonan surat " + s.jenis + " a.n. " + s.namaPemohon, tab: "rtrw", sec: "surat" });
+        });
+        state.collections.forEach(function (c) {
+          if (c.status === "menunggu") items.push({ label: "Setoran " + colRowHouse(c) + " (" + fmtSingkat(c.tanggal) + ") menunggu verifikasi", tab: "keliling", sec: "" });
+        });
+        state.bayar.forEach(function (b) {
+          if (bayarMenunggu(b)) {
+            var w = wargaById(b.wargaId);
+            items.push({ label: "Bukti transfer iuran " + fmtBulan(b.bulan) + " dari " + (w ? w.nama : "?") + " menunggu verifikasi", tab: "rtrw", sec: "iuran" });
+          }
+        });
+        return items;
+      }
 
       function dashboard() {
         var today = todayStr();
         var cols = activeCols(), exps = activeExps();
         var totalMasuk = 0, totalJimpitan = 0, totalKelebihan = 0, totalKeluar = 0;
         cols.forEach(function (c) { totalMasuk += c.total; totalJimpitan += c.jimpitan; totalKelebihan += c.kelebihan; });
+        var totalIuran = state.iuran.reduce(function (s, i) { return s + (Number(i.jumlah) || 0); }, 0);
+        totalMasuk += totalIuran;
         exps.forEach(function (e) { totalKeluar += e.jumlah; });
+        var sa = state.settings.saldoAwal || { utama: 0, proyek: 0, kematian: 0 };
+        var saldoAwalTotal = (Number(sa.utama) || 0) + (Number(sa.proyek) || 0) + (Number(sa.kematian) || 0);
+        function keluarKas(kas) {
+          return exps.filter(function (e) { return (e.kas || "utama") === kas; })
+            .reduce(function (s, e) { return s + e.jumlah; }, 0);
+        }
+        var perKas = {
+          utama: (Number(sa.utama) || 0) + totalMasuk - keluarKas("utama"),
+          proyek: (Number(sa.proyek) || 0) - keluarKas("proyek"),
+          kematian: (Number(sa.kematian) || 0) - keluarKas("kematian")
+        };
         var bulanIni = today.slice(0, 7);
         var masukBulanIni = cols.filter(function (c) { return c.tanggal.indexOf(bulanIni) === 0; })
           .reduce(function (s, c) { return s + c.total; }, 0);
@@ -634,7 +764,8 @@
         }).slice(0, 5);
         return {
           totalMasuk: totalMasuk, totalJimpitan: totalJimpitan, totalKelebihan: totalKelebihan,
-          totalKeluar: totalKeluar, saldo: totalMasuk - totalKeluar,
+          totalIuran: totalIuran, saldoAwalTotal: saldoAwalTotal, perKas: perKas,
+          totalKeluar: totalKeluar, saldo: saldoAwalTotal + totalMasuk - totalKeluar,
           masukBulanIni: masukBulanIni, keluarBulanIni: keluarBulanIni,
           hariIni: {
             terkumpul: todayCols.reduce(function (s, c) { return s + c.total; }, 0),
@@ -687,7 +818,8 @@
       var SIDE = [
         { tab: "beranda", label: "Dashboard", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg>' },
         { tab: "keliling", label: "Jimpitan Harian", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>' },
-        { tab: "rtrw", sec: "warga", label: "Profil Warga", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>' },
+        { tab: "rtrw", sec: "profil", label: "Profil Warga", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>' },
+        { tab: "rtrw", sec: "broadcast", label: "Broadcast WA", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></svg>' },
         { tab: "rumah", label: "Data Rumah", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></svg>' },
         { tab: "kas", label: "Arus Kas", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/><path d="M6 12h.01M18 12h.01"/></svg>' },
         { tab: "rtrw", sec: "iuran", label: "Ceklist Iuran", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>' },
@@ -728,6 +860,12 @@
         html += '</div></div><div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap">';
         html += '<span class="role-badge ' + state.role + '">' + esc(ROLE_LABEL[state.role]) +
           (isPengurus() && state.nama.trim() ? " · " + esc(state.nama.trim()) : "") + "</span>";
+        if (isPengurus()) {
+          var nCount = notifItems().length;
+          html += '<button type="button" class="bell-btn" data-act="notif-toggle" aria-label="Notifikasi pengurus">' +
+            '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>' +
+            (nCount > 0 ? '<span class="pill-count num">' + nCount + "</span>" : "") + "</button>";
+        }
         if (state.role === "warga") {
           html += '<button type="button" class="btn btn-primary" data-act="login-open">Masuk sebagai Pengurus</button>';
         } else {
@@ -759,6 +897,18 @@
           html += "</aside>";
         }
         html += "<div>";
+        if (ui.notifOpen && isPengurus()) {
+          var nItems = notifItems();
+          html += '<div class="notif-panel"><div style="display:flex;justify-content:space-between;align-items:center;gap:.75rem">' +
+            '<h2 class="sec">Notifikasi pengurus</h2>' +
+            '<button type="button" class="btn btn-ghost" data-act="notif-toggle">Tutup</button></div><div class="list" style="margin-top:.75rem">';
+          if (nItems.length === 0) html += '<p class="empty">Tidak ada notifikasi baru — semua sudah ditangani.</p>';
+          nItems.slice(0, 30).forEach(function (n) {
+            html += '<div class="row-item"><div><p class="t" style="font-weight:600">' + esc(n.label) + '</p></div>' +
+              '<button type="button" class="btn btn-primary" data-act="notif-go" data-tab="' + n.tab + '" data-sec="' + n.sec + '">Buka</button></div>';
+          });
+          html += "</div></div>";
+        }
         if (state.tab === "beranda") html += viewBeranda();
         else if (state.tab === "keliling") html += viewKeliling();
         else if (state.tab === "rumah") html += viewRumah();
@@ -843,6 +993,50 @@
         return '<div class="sec-head"><span class="ic">' + icon + "</span><h2>" + esc(title) + "</h2></div>";
       }
 
+      function demografiGroups() {
+        var aktif = profilAktif();
+        function grup(judul, labels, fn) {
+          var counts = {};
+          labels.forEach(function (l) { counts[l] = 0; });
+          aktif.forEach(function (p) {
+            var v = fn(p);
+            if (v == null || v === "") v = "(belum diisi)";
+            if (!(v in counts)) counts[v] = 0;
+            counts[v]++;
+          });
+          var items = Object.keys(counts).map(function (k) { return { label: k, jumlah: counts[k] }; })
+            .sort(function (a, b) { return b.jumlah - a.jumlah; });
+          return { judul: judul, items: items };
+        }
+        var usiaLabels = ["0–5 th", "6–12 th", "13–17 th", "18–25 th", "26–40 th", "41–55 th", "56–65 th", "di atas 65 th"];
+        return [
+          grup("Usia", usiaLabels, function (p) {
+            var u = umurDari(p.tanggalLahir);
+            if (u == null) return null;
+            if (u <= 5) return "0–5 th"; if (u <= 12) return "6–12 th"; if (u <= 17) return "13–17 th";
+            if (u <= 25) return "18–25 th"; if (u <= 40) return "26–40 th"; if (u <= 55) return "41–55 th";
+            if (u <= 65) return "56–65 th"; return "di atas 65 th";
+          }),
+          grup("Agama", [], function (p) { return p.agama; }),
+          grup("Status Perkawinan", [], function (p) { return p.statusKawin; }),
+          grup("Pekerjaan", [], function (p) { return p.pekerjaan; }),
+          grup("Pendidikan Terakhir", [], function (p) { return p.pendidikan; }),
+          grup("Golongan Darah", [], function (p) { return p.golonganDarah; })
+        ];
+      }
+      function demoSectionHtml(g) {
+        var total = g.items.reduce(function (s, i) { return s + i.jumlah; }, 0);
+        var out = '<div><p style="margin:0 0 .5rem;font-weight:700;font-size:.875rem">' + esc(g.judul) + '</p>';
+        if (total === 0) { out += '<p class="sub">Belum ada data.</p></div>'; return out; }
+        g.items.forEach(function (i) {
+          var pct = Math.round(i.jumlah / total * 100);
+          out += '<div class="demo-bar" style="margin-top:.3rem"><span>' + esc(i.label) + '</span>' +
+            '<span class="track"><span class="fill" style="display:block;width:' + pct + '%"></span></span>' +
+            '<span class="n num">' + i.jumlah + " · " + pct + "%</span></div>";
+        });
+        return out + "</div>";
+      }
+
       function viewBeranda() {
         var d = dashboard();
         var s = state.settings;
@@ -909,6 +1103,9 @@
           '<div><p class="v num" style="color:var(--danger)">' + rp(d.totalKeluar) + '</p><p class="l">Total keluar</p></div></div>' +
           '<div class="saldo-cols"><div><p class="v num">' + rp(d.totalJimpitan) + '</p><p class="l">Dari jimpitan</p></div>' +
           '<div><p class="v num" style="color:var(--amber)">' + rp(d.totalKelebihan) + '</p><p class="l">Dari kelebihan warga</p></div></div>' +
+          '<div class="saldo-cols"><div><p class="v num">' + rp(d.totalIuran) + '</p><p class="l">Dari iuran KK</p></div>' +
+          '<div><p class="v num">' + rp(d.saldoAwalTotal) + '</p><p class="l">Saldo awal</p></div></div>' +
+          '<p class="sub" style="margin-top:.75rem">Pemisahan kas — Utama: <b class="num">' + rp(d.perKas.utama) + '</b> · Proyek/Kegiatan: <b class="num">' + rp(d.perKas.proyek) + '</b> · Kematian: <b class="num">' + rp(d.perKas.kematian) + "</b></p>" +
           "</section></div>";
 
         /* --- Layanan Cepat --- */
@@ -942,8 +1139,8 @@
         html += "</section>";
 
         /* --- Pengumuman & Jadwal --- */
-        var umumT = state.umum.slice().sort(function (a, b) { return b.id - a.id; }).slice(0, 3);
-        var agendaT = state.agenda.filter(function (a) { return a.tanggal >= todayStr(); })
+        var umumT = state.umum.filter(function (u) { return u.status !== "batal"; }).sort(function (a, b) { return b.id - a.id; }).slice(0, 3);
+        var agendaT = state.agenda.filter(function (a) { return a.tanggal >= todayStr() && a.status !== "batal"; })
           .sort(function (a, b) { return a.tanggal < b.tanggal ? -1 : 1; }).slice(0, 3);
         html += '<div class="grid2" style="align-items:start">';
         html += "<section>" + secHead(IC.umum, "Pengumuman") + '<div class="list">';
@@ -964,8 +1161,8 @@
 
         /* --- Direktori UMKM --- */
         html += "<section>" + secHead(IC.umkm, "Direktori UMKM Warga") + '<div class="list">';
-        if (state.umkm.length === 0) html += '<p class="empty">Belum ada UMKM terdaftar. Bendahara bisa menambahkan dari menu UMKM.</p>';
-        state.umkm.slice(0, 6).forEach(function (u) {
+        if (state.umkm.filter(function (u) { return u.status !== "batal"; }).length === 0) html += '<p class="empty">Belum ada UMKM terdaftar. Bendahara bisa menambahkan dari menu UMKM.</p>';
+        state.umkm.filter(function (u) { return u.status !== "batal"; }).slice(0, 6).forEach(function (u) {
           html += '<div class="row-item"><div><p class="t">' + esc(u.namaUsaha) + '</p><p class="s">' +
             [u.pemilik, u.deskripsi].filter(Boolean).map(esc).join(" · ") + '</p></div><div style="display:flex;gap:.375rem;flex-wrap:wrap;justify-content:flex-end">' +
             (u.kategori ? badge("gray", u.kategori) : "") +
@@ -973,6 +1170,55 @@
             "</div></div>";
         });
         html += "</div></section>";
+
+        /* --- Pencarian warga publik (hanya nama + status) --- */
+        html += '<section class="card">' + secHead(IC.warga, "Cari Warga") +
+          '<p class="sub">Cari nama warga untuk melihat status kependudukannya — tanpa login, dan hanya nama serta status yang ditampilkan.</p>' +
+          '<div style="display:flex;gap:.5rem;margin-top:.75rem;flex-wrap:wrap">' +
+          '<input id="cari-warga" type="search" class="inp" style="flex:1;min-width:12rem" placeholder="Ketik nama warga…" value="' + esc(ui.cariWarga) + '" data-bind="cariWarga">' +
+          '<button type="button" class="btn btn-primary" data-act="cari-warga">Cari</button></div>';
+        if (ui.cariWargaRun) {
+          var q = ui.cariWarga.trim().toLowerCase();
+          var hasil = state.profil.filter(function (p) { return q && p.nama.toLowerCase().indexOf(q) >= 0; }).slice(0, 20);
+          html += '<div class="list" style="margin-top:.75rem">';
+          if (hasil.length === 0) html += '<p class="empty">Tidak ditemukan warga dengan nama itu.</p>';
+          hasil.forEach(function (p) {
+            html += '<div class="row-item"><div><p class="t">' + esc(p.nama) + "</p></div>" +
+              statusBadge(p.statusTinggal === "pindah" ? "Pindah" : p.statusTinggal === "meninggal" ? "Meninggal" : "Aktif") + "</div>";
+          });
+          html += "</div>";
+        }
+        html += "</section>";
+
+        /* --- Pengurus RT --- */
+        var peng = state.settings.pengurus || [];
+        if (peng.length > 0) {
+          html += "<section>" + secHead(IC.warga, "Pengurus " + s.namaRt) + '<div class="pengurus-grid">';
+          peng.forEach(function (pg) {
+            var inisial = pg.nama.split(" ").slice(0, 2).map(function (x) { return x.charAt(0); }).join("").toUpperCase();
+            html += '<div class="card pengurus-card">' +
+              (pg.foto && String(pg.foto).indexOf("data:image/") === 0 ? '<img src="' + esc(pg.foto) + '" alt="Foto ' + esc(pg.nama) + '">' : '<span class="avatar" aria-hidden="true">' + esc(inisial) + "</span>") +
+              '<p class="t" style="font-size:.9375rem;font-weight:700;margin:0">' + esc(pg.nama) + '</p>' +
+              '<p class="s">' + esc(pg.jabatan) + "</p>" +
+              (pg.noHp ? '<p style="margin:.5rem 0 0"><a class="btn btn-primary" href="https://wa.me/' + waNum(pg.noHp) + '" target="_blank" rel="noopener">WhatsApp ' + esc(pg.noHp) + "</a></p>" : "") +
+              "</div>";
+          });
+          html += "</div></section>";
+        }
+
+        /* --- Demografi warga (dari Profil Warga) --- */
+        html += '<section class="card"><div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:flex-start;gap:.75rem">' +
+          secHead(IC.warga, "Demografi Warga") +
+          (state.profil.length > 0 ? '<button type="button" class="btn btn-ghost" data-act="demo-csv">Unduh rincian (CSV)</button>' : "") + "</div>";
+        if (state.profil.length === 0) {
+          html += '<p class="sub">Belum ada data Profil Warga — grafik demografi (usia, agama, status perkawinan, pekerjaan, pendidikan, golongan darah) akan tampil di sini begitu pengurus mengisi Profil Warga.</p>';
+        } else {
+          html += '<p class="sub">' + profilAktif().length + ' warga aktif dari ' + state.profil.length + ' jiwa terdaftar di Profil Warga (warga pindah/meninggal tidak dihitung).</p>' +
+            '<div class="grid2" style="margin-top:.75rem;align-items:start">';
+          demografiGroups().forEach(function (g) { html += demoSectionHtml(g); });
+          html += "</div>";
+        }
+        html += "</section>";
 
         /* --- Aktivitas kas terakhir --- */
         html += '<div class="grid2" style="align-items:start">';
@@ -1005,7 +1251,7 @@
           state.collections.forEach(function (c) {
             if (c.houseId === h.id && c.tanggal === tanggal && c.status !== "batal") found = c;
           });
-          return { house: h, collection: found };
+          return { house: h, collection: found, nominal: nominalRumah(h) };
         });
         var total = 0, kelebihan = 0, sudah = 0, menunggu = 0;
         rows.forEach(function (r) {
@@ -1083,8 +1329,8 @@
             html += "</div>";
           } else if (canWrite) {
             html += '<div class="actions-row">' +
-              '<button type="button" class="btn btn-primary" data-act="catat" data-house="' + h.id + '" data-total="' + sheet.nominalBaku + '">' + rp(sheet.nominalBaku) + "</button>" +
-              '<button type="button" class="btn btn-amber" data-act="catat" data-house="' + h.id + '" data-total="' + (sheet.nominalBaku * 2) + '">' + rp(sheet.nominalBaku * 2) + "</button>" +
+              '<button type="button" class="btn btn-primary" data-act="catat" data-house="' + h.id + '" data-total="' + r.nominal + '">' + rp(r.nominal) + "</button>" +
+              '<button type="button" class="btn btn-amber" data-act="catat" data-house="' + h.id + '" data-total="' + (r.nominal * 2) + '">' + rp(r.nominal * 2) + "</button>" +
               '<button type="button" class="btn btn-ghost" data-act="custom-open" data-house="' + h.id + '" data-val="">Nominal lain…</button></div>';
           } else {
             html += '<p class="sub" style="margin-top:.5rem">Belum setor hari ini.</p>';
@@ -1143,6 +1389,15 @@
             '<input id="f-penghuni" type="text" class="inp" placeholder="mis. Keluarga Pak Slamet" value="' + esc(ui.fPenghuni) + '" data-bind="fPenghuni"></div>' +
             '<div><label class="lbl" for="f-blok">Blok / gang (boleh kosong)</label>' +
             '<input id="f-blok" type="text" class="inp" value="' + esc(ui.fBlok) + '" data-bind="fBlok"></div>' +
+            ((state.settings.rtList || []).length > 0
+              ? '<div><label class="lbl" for="f-rt">RT (dukungan RW)</label>' +
+                '<select id="f-rt" class="inp" data-bind-sel="fRt"><option value="">— RT utama —</option>' +
+                (state.settings.rtList || []).map(function (r) {
+                  return '<option value="' + esc(r.nama) + '"' + (ui.fRt === r.nama ? " selected" : "") + ">" + esc(r.nama) +
+                    " (jimpitan " + rp(r.nominalJimpitan) + " · iuran " + rp(r.nominalIuran) + ")</option>";
+                }).join("") + "</select>" +
+                '<p class="hint">Rumah di RT ini memakai nominal jimpitan &amp; iuran RT tersebut.</p></div>'
+              : "") +
             '<div><label class="lbl" for="f-status">Status rumah</label>' +
             '<select id="f-status" class="inp" data-bind="fStatus">' +
             '<option value="aktif"' + (ui.fStatus === "aktif" ? " selected" : "") + ">Aktif — dihuni, ikut jimpitan</option>" +
@@ -1174,7 +1429,16 @@
             '</div><div style="display:flex;align-items:center;gap:.5rem">' +
             (h.status === "aktif" ? badge("green", "Aktif") : h.status === "kosong" ? badge("gray", "Kosong") : badge("red", "Nonaktif")) +
             (canWrite ? '<button type="button" class="btn btn-ghost" data-act="house-edit" data-id="' + h.id + '">Ubah</button>' : "") +
+            (canWrite && h.status !== "nonaktif" ? '<button type="button" class="btn btn-danger-ghost" data-act="house-arsip-open" data-id="' + h.id + '">Arsipkan</button>' : "") +
             "</div></div>";
+          if (canWrite && ui.houseArsipFor === h.id) {
+            html += '<form class="card" data-form="house-arsip" data-id="' + h.id + '" style="padding:.75rem 1rem">' +
+              '<label class="lbl" for="arsip-rumah-' + h.id + '">Alasan mengarsipkan rumah ' + esc(h.nomor) + '</label>' +
+              '<input id="arsip-rumah-' + h.id + '" type="text" class="inp" placeholder="mis. penghuni pindah, rumah dijual" value="' + esc(ui.houseArsipReason) + '" data-bind="houseArsipReason">' +
+              '<div class="actions-row"><button type="submit" class="btn btn-danger">Arsipkan rumah</button>' +
+              '<button type="button" class="btn btn-ghost" data-act="house-arsip-close">Kembali</button></div>' +
+              '<p class="hint">Rumah tidak dihapus — statusnya menjadi Nonaktif, hilang dari daftar keliling, dan alasannya tercatat di audit log. Bisa diaktifkan lagi lewat tombol Ubah.</p></form>';
+          }
         });
         html += "</div>";
         if (!canWrite) {
@@ -1204,10 +1468,50 @@
           '<input id="s-nominal" type="number" inputmode="numeric" class="inp" value="' + esc(nominal) + '" data-bind="sNominal"></div>' +
           '<div><label class="lbl" for="s-iuran">Iuran bulanan per KK (Rp)</label>' +
           '<input id="s-iuran" type="number" inputmode="numeric" class="inp" value="' + esc(ui.sIuran != null ? ui.sIuran : String(s.nominalIuran || 20000)) + '" data-bind="sIuran">' +
-          '<p class="hint">Untuk ceklis iuran bulanan di tab RT/RW — terpisah dari jimpitan harian.</p></div></div>' +
+          '<p class="hint">Untuk ceklis iuran bulanan di tab RT/RW — terpisah dari jimpitan harian.</p></div>' +
+          '<div><label class="lbl" for="s-saldo-utama">Saldo awal Kas Utama (Rp)</label>' +
+          '<input id="s-saldo-utama" type="number" inputmode="numeric" class="inp" value="' + esc(ui.sSaldoUtama != null ? ui.sSaldoUtama : String((s.saldoAwal || {}).utama || 0)) + '" data-bind="sSaldoUtama"></div>' +
+          '<div><label class="lbl" for="s-saldo-proyek">Saldo awal Kas Proyek/Kegiatan (Rp)</label>' +
+          '<input id="s-saldo-proyek" type="number" inputmode="numeric" class="inp" value="' + esc(ui.sSaldoProyek != null ? ui.sSaldoProyek : String((s.saldoAwal || {}).proyek || 0)) + '" data-bind="sSaldoProyek"></div>' +
+          '<div><label class="lbl" for="s-saldo-kematian">Saldo awal Kas Kematian (Rp)</label>' +
+          '<input id="s-saldo-kematian" type="number" inputmode="numeric" class="inp" value="' + esc(ui.sSaldoKematian != null ? ui.sSaldoKematian : String((s.saldoAwal || {}).kematian || 0)) + '" data-bind="sSaldoKematian">' +
+          '<p class="hint">Saldo awal = kas yang sudah ada sebelum pencatatan di aplikasi ini dimulai. Ikut dihitung dalam saldo gabungan.</p></div></div>' +
           (ui.sError ? '<p class="field-err">' + esc(ui.sError) + "</p>" : "") +
           (ui.sDone ? '<p class="ok-note">Pengaturan tersimpan.</p>' : "") +
-          '<div class="actions-row"><button type="submit" class="btn btn-primary">Simpan pengaturan</button></div></form>';
+          '<div class="actions-row"><button type="submit" class="btn btn-primary">Simpan pengaturan</button></div></form>' +
+          /* ---- Dukungan tingkat RW: daftar RT dengan nominal masing-masing ---- */
+          '<div class="card" style="margin-top:1.25rem"><h2 class="sec">Dukungan RW — daftar RT &amp; nominalnya</h2>' +
+          '<p class="sub">Untuk lingkungan setingkat RW yang menaungi beberapa RT: daftarkan tiap RT di sini dengan nominal jimpitan &amp; iurannya sendiri. Rumah dan KK yang ditandai RT tertentu otomatis memakai nominal RT itu; yang tidak ditandai memakai nominal baku di atas.</p>' +
+          '<div class="list" style="margin-top:.75rem">' +
+          ((s.rtList || []).length === 0 ? '<p class="empty">Belum ada RT tambahan terdaftar — sistem berjalan sebagai satu RT.</p>' : "") +
+          (s.rtList || []).map(function (r) {
+            return '<div class="row-item"><div><p class="t">' + esc(r.nama) + '</p><p class="s">Jimpitan ' + rp(r.nominalJimpitan) + "/hari · Iuran " + rp(r.nominalIuran) + '/bulan</p></div>' +
+              '<button type="button" class="btn btn-danger-ghost" data-act="rt-del" data-nama="' + esc(r.nama) + '">Hapus RT</button></div>';
+          }).join("") +
+          '</div>' +
+          '<form data-form="rt-add" style="margin-top:.75rem"><div class="grid2">' +
+          fld("rt-nama-baru", "Nama RT", "rtNamaBaru", ui.rtNamaBaru, "mis. RT 02") +
+          fld("rt-jimp-baru", "Jimpitan per hari (Rp)", "rtJimpBaru", ui.rtJimpBaru, "500", "number") +
+          fld("rt-iuran-baru", "Iuran per bulan (Rp)", "rtIuranBaru", ui.rtIuranBaru, "20000", "number") +
+          '</div><div class="actions-row"><button type="submit" class="btn btn-primary">Tambah RT</button></div></form></div>' +
+          /* ---- Pengurus RT di halaman depan ---- */
+          '<div class="card" style="margin-top:1.25rem"><h2 class="sec">Pengurus RT di halaman depan</h2>' +
+          '<p class="sub">Nama, jabatan, foto, dan nomor HP/WhatsApp pengurus tampil di Beranda supaya warga mudah menghubungi. Foto bersifat opsional.</p>' +
+          '<div class="list" style="margin-top:.75rem">' +
+          ((s.pengurus || []).length === 0 ? '<p class="empty">Belum ada pengurus ditampilkan.</p>' : "") +
+          (s.pengurus || []).map(function (pg, idx) {
+            return '<div class="row-item"><div><p class="t">' + esc(pg.nama) + '</p><p class="s">' + esc(pg.jabatan) + (pg.noHp ? " · " + esc(pg.noHp) : "") + '</p></div>' +
+              '<button type="button" class="btn btn-danger-ghost" data-act="pengurus-del" data-idx="' + idx + '">Hapus</button></div>';
+          }).join("") +
+          '</div>' +
+          '<form data-form="pengurus-add" style="margin-top:.75rem"><div class="grid2">' +
+          fld("pg-nama", "Nama pengurus", "pgNama", ui.pgNama, "mis. Pak Dariyo") +
+          fld("pg-jabatan", "Jabatan", "pgJabatan", ui.pgJabatan, "Ketua RT / Sekretaris / Bendahara…") +
+          fld("pg-hp", "No. HP / WhatsApp", "pgHp", ui.pgHp, "08…") +
+          '<div><label class="lbl" for="pg-foto">Foto (opsional)</label>' +
+          '<input id="pg-foto" type="file" accept="image/*" class="inp" data-file="pg-foto">' +
+          (ui.pgFoto ? '<p class="hint">Foto dipilih — akan tampil setelah disimpan.</p>' : "") + "</div>" +
+          '</div><div class="actions-row"><button type="submit" class="btn btn-primary">Tambah pengurus</button></div></form></div>';
       }
 
       /* ================= Kas ================= */
@@ -1225,7 +1529,16 @@
         html += "<section><h2 class=\"sec\">Kas RT</h2>" +
           '<div class="stats3" style="margin-top:.75rem">' +
           statCard("Saldo", rp(d.saldo)) + statCard("Masuk", rp(d.totalMasuk)) + statCard("Keluar", rp(d.totalKeluar)) +
-          "</div></section>";
+          "</div>" +
+          '<p class="sub" style="margin-top:.5rem">Saldo gabungan = saldo awal ' + rp(d.saldoAwalTotal) + " + jimpitan &amp; iuran − pengeluaran.</p>" +
+          '<div class="stats3" style="margin-top:.75rem">' +
+          statCard("Kas Utama", rp(d.perKas.utama)) +
+          statCard("Kas Proyek/Kegiatan", rp(d.perKas.proyek)) +
+          statCard("Kas Kematian", rp(d.perKas.kematian)) +
+          "</div>" +
+          '<div class="actions-row">' +
+          '<button type="button" class="btn btn-primary" data-act="dl-kas-html">Unduh laporan arus kas (HTML — bisa dicetak)</button>' +
+          '<button type="button" class="btn btn-ghost" data-act="dl-kas-csv">Unduh arus kas (CSV)</button></div></section>';
         if (ui.error) html += '<p class="err">' + esc(ui.error) + "</p>";
         html += "<section><h2 class=\"sec\">Rekap kelebihan</h2>" +
           '<p class="sub">Uang di atas nominal baku, tercatat terpisah — dan selalu ketahuan dari rumah mana, tanggal berapa, dan petugas siapa.</p>' +
@@ -1245,6 +1558,11 @@
             '<input id="e-tgl" type="date" class="inp" value="' + ui.eTgl + '" data-bind="eTgl"></div>' +
             '<div><label class="lbl" for="e-jumlah">Jumlah (Rp)</label>' +
             '<input id="e-jumlah" type="number" inputmode="numeric" min="1" class="inp" value="' + esc(ui.eJumlah) + '" data-bind="eJumlah"></div>' +
+            '<div><label class="lbl" for="e-kas">Sumber kas</label>' +
+            '<select id="e-kas" class="inp" data-bind-sel="eKas">' +
+            [["utama", "Kas Utama"], ["proyek", "Kas Proyek/Kegiatan"], ["kematian", "Kas Kematian"]].map(function (k) {
+              return '<option value="' + k[0] + '"' + (ui.eKas === k[0] ? " selected" : "") + ">" + k[1] + "</option>";
+            }).join("") + "</select></div>" +
             '<div style="grid-column:1/-1"><label class="lbl" for="e-keperluan">Keperluan</label>' +
             '<input id="e-keperluan" type="text" class="inp" placeholder="mis. beli lampu jalan, perbaikan pos ronda" value="' + esc(ui.eKeperluan) + '" data-bind="eKeperluan"></div>' +
             '<div style="grid-column:1/-1"><label class="lbl" for="e-ket">Keterangan (boleh kosong)</label>' +
@@ -1260,6 +1578,7 @@
             '<p style="font-size:.875rem;font-weight:700;margin:0">' +
             '<span' + (batal ? ' class="strike"' : "") + ">" + esc(e.keperluan) + '</span></p>' +
             '<p class="s">' + esc(fmtSingkat(e.tanggal)) + " · dicatat " + esc(e.dicatatOleh) +
+            " · " + (e.kas === "proyek" ? "Kas Proyek/Kegiatan" : e.kas === "kematian" ? "Kas Kematian" : "Kas Utama") +
             (e.keterangan ? " · " + esc(e.keterangan) : "") + "</p>" +
             (batal ? '<p style="margin:0;font-size:.75rem;font-weight:600;color:var(--danger)">Dibatalkan: ' + esc(e.alasanBatal || "-") + "</p>" : "") +
             '</div><div style="text-align:right"><p class="amt num" style="color:var(--danger)">−' + rp(e.jumlah) + "</p>" +
@@ -1347,8 +1666,11 @@
 
       /* ================= Modul RT/RW (adaptasi Manajemen RTRW v2) ================= */
       var RT_SECS = [
+        { id: "profil", label: "Profil Warga" },
         { id: "warga", label: "Warga & KK" },
         { id: "iuran", label: "Iuran Bulanan" },
+        { id: "bayar", label: "Iuran Saya" },
+        { id: "broadcast", label: "Broadcast WA" },
         { id: "aset", label: "Aset" },
         { id: "surat", label: "Surat" },
         { id: "pinjam", label: "Peminjaman" },
@@ -1360,16 +1682,19 @@
       ];
       function rtSecsForRole() {
         if (state.role === "warga") return RT_SECS.filter(function (s) {
-          return ["surat", "aduan", "agenda", "umum", "umkm"].indexOf(s.id) >= 0;
+          return ["surat", "aduan", "agenda", "umum", "umkm", "bayar"].indexOf(s.id) >= 0;
         });
-        if (state.role === "petugas") return RT_SECS.filter(function (s) { return s.id !== "audit"; });
-        return RT_SECS;
+        if (state.role === "petugas") return RT_SECS.filter(function (s) {
+          return ["audit", "broadcast", "bayar"].indexOf(s.id) < 0;
+        });
+        return RT_SECS.filter(function (s) { return s.id !== "bayar"; });
       }
       function statusBadge(st) {
         var map = {
           "aktif": "green", "lunas": "green", "selesai": "green", "kembali": "green", "baik": "green",
           "menunggu": "amber", "diajukan": "amber", "baru": "amber", "dipinjam": "amber", "diproses": "amber", "ditindaklanjuti": "amber",
-          "belum": "gray", "kosong": "gray", "rusak": "red", "ditolak": "red", "nonaktif": "red", "pindah": "gray", "meninggal": "gray"
+          "belum": "gray", "kosong": "gray", "rusak": "red", "ditolak": "red", "nonaktif": "red", "pindah": "gray", "meninggal": "gray",
+          "terverifikasi": "green", "batal": "red", "arsip": "gray"
         };
         return badge(map[String(st).toLowerCase()] || "gray", st);
       }
@@ -1377,6 +1702,20 @@
         return '<div><label class="lbl" for="' + id + '">' + label + '</label>' +
           '<input id="' + id + '" type="' + (type || "text") + '" class="inp" value="' + esc(val) +
           '" placeholder="' + esc(ph || "") + '" data-bind="' + bind + '"></div>';
+      }
+
+      function batalFormHtml(label) {
+        return '<form class="inline-form" data-form="rt-batal">' +
+          '<label class="lbl">Alasan membatalkan ' + esc(label) + '</label>' +
+          '<input type="text" class="inp" placeholder="mis. salah input, sudah tidak berlaku" value="' + esc(ui.batalReason) + '" data-bind="batalReason">' +
+          '<div class="actions-row"><button type="submit" class="btn btn-danger">Batalkan ' + esc(label) + '</button>' +
+          '<button type="button" class="btn btn-ghost" data-act="batal-close">Kembali</button></div>' +
+          '<p class="hint">Tidak ada hapus permanen — data berstatus Batal dengan alasan, keluar dari daftar aktif &amp; halaman depan, dan tercatat di audit log.</p></form>';
+      }
+      function editBatalBtns(jenis, id, label) {
+        return '<div style="display:flex;gap:.375rem;flex-wrap:wrap;justify-content:flex-end">' +
+          '<button type="button" class="btn btn-ghost" data-act="rt-edit" data-jenis="' + jenis + '" data-id="' + id + '">Ubah</button>' +
+          '<button type="button" class="btn btn-danger-ghost" data-act="batal-open" data-jenis="' + jenis + '" data-id="' + id + '">Batalkan</button></div>';
       }
 
       function viewRTRW() {
@@ -1394,28 +1733,138 @@
         html += "</div>";
         if (ui.rtError) html += '<p class="err">' + esc(ui.rtError) + "</p>";
         if (ui.rtDone) html += '<p class="ok-note">' + esc(ui.rtDone) + "</p>";
-        if (!manage && ui.rtSec !== "surat" && ui.rtSec !== "aduan") {
+        if (!manage && ui.rtSec !== "surat" && ui.rtSec !== "aduan" && ui.rtSec !== "bayar") {
           html += '<p class="sub">' + (state.role === "warga"
             ? "Mode lihat untuk warga — tidak ada tombol ubah/hapus di peran ini. Pengajuan surat & pengaduan bisa lewat subtab Surat / Pengaduan."
             : "Mode lihat untuk petugas — pengelolaan modul ini hanya oleh Bendahara dan Super Admin.") + "</p>";
         }
 
+        /* ---- Profil Warga (registry per jiwa, terpisah dari data Rumah) ---- */
+        if (ui.rtSec === "profil") {
+          var selOpts = function (list, cur) {
+            return list.map(function (o) {
+              return '<option value="' + esc(o) + '"' + (cur === o ? " selected" : "") + ">" + esc(o) + "</option>";
+            }).join("");
+          };
+          if (manage) {
+            html += '<form class="card" data-form="rt-profil"><p style="margin:0 0 .75rem;font-weight:700">' +
+              (ui.pfEdit ? "Ubah profil warga" : "Tambah profil warga") + '</p>' +
+              '<p class="sub" style="margin-bottom:.75rem">Registry warga per jiwa untuk demografi, broadcast WA, dan administrasi. Jimpitan tetap dihitung <b>per rumah</b> — profil ini tidak mengubah kewajiban jimpitan rumah mana pun.</p><div class="grid2">' +
+              '<div><label class="lbl" for="pf-house">Rumah tempat tinggal</label>' +
+              '<select id="pf-house" class="inp" data-bind-sel="pfHouse"><option value="">— pilih rumah —</option>' +
+              sortedHouses().map(function (h) {
+                return '<option value="' + h.id + '"' + (String(ui.pfHouse) === String(h.id) ? " selected" : "") + ">Rumah " + esc(h.nomor) + " · " + esc(h.namaPenghuni) + "</option>";
+              }).join("") + "</select></div>" +
+              fld("pf-nama", "Nama lengkap", "pfNama", ui.pfNama, "Sesuai KTP") +
+              fld("pf-kk", "No. KK", "pfKK", ui.pfKK, "16 digit No. KK") +
+              fld("pf-nik", "NIK (unik — tidak boleh ganda)", "pfNik", ui.pfNik, "16 digit NIK") +
+              '<div><label class="lbl" for="pf-hub">Hubungan dalam keluarga</label>' +
+              '<select id="pf-hub" class="inp" data-bind-sel="pfHub">' + selOpts(["Kepala Keluarga", "Suami", "Istri", "Anak", "Orang Tua", "Menantu", "Famili Lain"], ui.pfHub) + "</select></div>" +
+              fld("pf-pekerjaan", "Pekerjaan", "pfPekerjaan", ui.pfPekerjaan, "mis. Guru, Wiraswasta, Pelajar") +
+              '<div><label class="lbl" for="pf-pendidikan">Pendidikan terakhir</label>' +
+              '<select id="pf-pendidikan" class="inp" data-bind-sel="pfPendidikan"><option value="">— pilih —</option>' + selOpts(["Tidak/Belum Sekolah", "SD", "SMP", "SMA/SMK", "Diploma", "S1", "S2", "S3"], ui.pfPendidikan) + "</select></div>" +
+              '<div><label class="lbl" for="pf-darah">Golongan darah</label>' +
+              '<select id="pf-darah" class="inp" data-bind-sel="pfDarah"><option value="">— pilih —</option>' + selOpts(["A", "B", "AB", "O"], ui.pfDarah) + "</select></div>" +
+              fld("pf-lahir", "Tanggal lahir", "pfLahir", ui.pfLahir, "", "date") +
+              '<div><label class="lbl" for="pf-agama">Agama</label>' +
+              '<select id="pf-agama" class="inp" data-bind-sel="pfAgama"><option value="">— pilih —</option>' + selOpts(["Islam", "Kristen", "Katolik", "Hindu", "Buddha", "Konghucu", "Lainnya"], ui.pfAgama) + "</select></div>" +
+              '<div><label class="lbl" for="pf-kawin">Status perkawinan</label>' +
+              '<select id="pf-kawin" class="inp" data-bind-sel="pfKawin"><option value="">— pilih —</option>' + selOpts(["Belum Kawin", "Kawin", "Cerai Hidup", "Cerai Mati"], ui.pfKawin) + "</select></div>" +
+              fld("pf-hp", "No. HP / WhatsApp (boleh kosong)", "pfHp", ui.pfHp, "08…") +
+              '<div><label class="lbl" for="pf-status">Status tinggal</label>' +
+              '<select id="pf-status" class="inp" data-bind-sel="pfStatus">' +
+              '<option value="aktif"' + (ui.pfStatus === "aktif" ? " selected" : "") + ">Aktif — tinggal di sini</option>" +
+              '<option value="pindah"' + (ui.pfStatus === "pindah" ? " selected" : "") + ">Pindah — tidak tinggal di sini lagi</option>" +
+              '<option value="meninggal"' + (ui.pfStatus === "meninggal" ? " selected" : "") + ">Meninggal dunia</option>" +
+              "</select></div>" +
+              fld("pf-alasan", "Alasan pindah / keterangan meninggal", "pfAlasan", ui.pfAlasan, "Wajib diisi bila status Pindah/Meninggal") +
+              "</div>" +
+              '<div class="actions-row"><button type="submit" class="btn btn-primary">' + (ui.pfEdit ? "Simpan perubahan" : "Simpan profil warga") + "</button>" +
+              (ui.pfEdit ? '<button type="button" class="btn btn-ghost" data-act="pf-cancel">Batal ubah</button>' : "") + "</div>" +
+              '<p class="hint">Perubahan status menjadi Pindah/Meninggal tercatat di riwayat warga beserta alasan dan tanggalnya — warga nonaktif tidak tercampur dengan warga aktif di demografi &amp; broadcast.</p></form>';
+          }
+          html += '<div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:flex-end">' +
+            '<div style="flex:1;min-width:12rem"><label class="lbl" for="pf-cari">Cari profil warga</label>' +
+            '<input id="pf-cari" type="search" class="inp" placeholder="Nama, NIK, atau No. KK…" value="' + esc(ui.pfCari) + '" data-bind="pfCari"></div></div>';
+          html += '<div class="subtabs" style="margin-top:.75rem">' +
+            [["semua", "Semua"], ["aktif", "Aktif"], ["pindah", "Pindah"], ["meninggal", "Meninggal"]].map(function (f) {
+              return '<button type="button" data-act="pf-filter" data-val="' + f[0] + '"' + (ui.pfFilter === f[0] ? ' aria-current="true"' : "") + ">" + f[1] +
+                " (" + state.profil.filter(function (p) { return f[0] === "semua" || (p.statusTinggal || "aktif") === f[0]; }).length + ")</button>";
+            }).join("") + "</div>";
+          var pq = ui.pfCari.trim().toLowerCase();
+          var plist = state.profil.filter(function (p) {
+            if (ui.pfFilter !== "semua" && (p.statusTinggal || "aktif") !== ui.pfFilter) return false;
+            if (!pq) return true;
+            return p.nama.toLowerCase().indexOf(pq) >= 0 || String(p.nik || "").indexOf(pq) >= 0 || String(p.noKK || "").indexOf(pq) >= 0;
+          }).sort(function (a, b) { return a.nama.localeCompare(b.nama, "id"); });
+          html += '<div class="list" style="margin-top:.75rem">';
+          if (plist.length === 0) html += '<p class="empty">Belum ada profil warga pada tampilan ini. Profil warga adalah registry per jiwa (satu rumah bisa berisi banyak jiwa dari satu atau beberapa KK).</p>';
+          plist.forEach(function (p) {
+            var h = p.houseId ? houseById(p.houseId) : null;
+            var umur = umurDari(p.tanggalLahir);
+            var st = p.statusTinggal || "aktif";
+            html += '<div class="card" style="padding:.75rem 1rem"><div style="display:flex;justify-content:space-between;gap:.75rem;align-items:flex-start"><div>' +
+              '<p class="t" style="font-size:.9375rem;font-weight:700;margin:0">' + esc(p.nama) + '</p>' +
+              '<p class="s">' + [p.hubungan, h ? "Rumah " + h.nomor : "", umur != null ? umur + " th" : "", p.pekerjaan, p.noHp].filter(Boolean).map(esc).join(" · ") + '</p>' +
+              '<p class="s">KK ' + esc(p.noKK || "-") + " · NIK " + esc(p.nik || "-") +
+              (p.agama ? " · " + esc(p.agama) : "") + (p.statusKawin ? " · " + esc(p.statusKawin) : "") +
+              (p.pendidikan ? " · " + esc(p.pendidikan) : "") + (p.golonganDarah ? " · Gol. " + esc(p.golonganDarah) : "") + "</p></div>" +
+              '<div style="display:flex;gap:.375rem;flex-wrap:wrap;justify-content:flex-end">' +
+              statusBadge(st === "aktif" ? "Aktif" : st === "pindah" ? "Pindah" : "Meninggal") +
+              (manage ? '<button type="button" class="btn btn-ghost" data-act="pf-edit" data-id="' + p.id + '">Ubah</button>' : "") +
+              "</div></div>";
+            if (p.riwayat && p.riwayat.length) {
+              html += '<div style="margin-top:.5rem">' + p.riwayat.slice().reverse().map(function (r) {
+                return '<p class="s" style="margin:0">Riwayat: <b>' + esc(r.status) + "</b> · " + esc(fmtSingkat(r.tanggal)) +
+                  (r.alasan ? " · " + esc(r.alasan) : "") + (r.oleh ? " · dicatat " + esc(r.oleh) : "") + "</p>";
+              }).join("") + "</div>";
+            }
+            html += "</div>";
+          });
+          html += "</div>";
+        }
+
         /* ---- Warga & KK ---- */
         if (ui.rtSec === "warga") {
           if (manage) {
-            html += '<form class="card" data-form="rt-warga"><p style="margin:0 0 .75rem;font-weight:700">Tambah data warga / KK</p><div class="grid2">' +
+            html += '<form class="card" data-form="rt-warga"><p style="margin:0 0 .75rem;font-weight:700">' +
+              (ui.wEdit ? "Ubah data warga / KK" : "Tambah data warga / KK") + '</p><div class="grid2">' +
               fld("w-nama", "Nama kepala keluarga", "wNama", ui.wNama, "mis. Bapak Slamet") +
               fld("w-alamat", "Alamat / nomor rumah", "wAlamat", ui.wAlamat, "mis. Rumah 12, Blok A") +
               fld("w-hp", "No. HP (boleh kosong)", "wHp", ui.wHp, "08…") +
-              "</div>" + '<div class="actions-row"><button type="submit" class="btn btn-primary">Simpan warga</button></div></form>';
+              '<div><label class="lbl" for="w-status">Status KK</label>' +
+              '<select id="w-status" class="inp" data-bind-sel="wStatus">' +
+              '<option value="aktif"' + (ui.wStatus === "aktif" ? " selected" : "") + ">Aktif</option>" +
+              '<option value="pindah"' + (ui.wStatus === "pindah" ? " selected" : "") + ">Pindah</option>" +
+              '<option value="meninggal"' + (ui.wStatus === "meninggal" ? " selected" : "") + ">Meninggal</option>" +
+              "</select></div>" +
+              ((state.settings.rtList || []).length > 0
+                ? '<div><label class="lbl" for="w-rt">RT (dukungan RW)</label>' +
+                  '<select id="w-rt" class="inp" data-bind-sel="wRt"><option value="">— RT utama —</option>' +
+                  (state.settings.rtList || []).map(function (r) {
+                    return '<option value="' + esc(r.nama) + '"' + (ui.wRt === r.nama ? " selected" : "") + ">" + esc(r.nama) + "</option>";
+                  }).join("") + "</select></div>"
+                : "") +
+              "</div>" + '<div class="actions-row"><button type="submit" class="btn btn-primary">' +
+              (ui.wEdit ? "Simpan perubahan" : "Simpan warga") + "</button>" +
+              (ui.wEdit ? '<button type="button" class="btn btn-ghost" data-act="warga-cancel">Batal ubah</button>' : "") + "</div></form>";
+            html += '<div class="card"><h2 class="sec">Impor data yang sudah ada (CSV)</h2>' +
+              '<p class="sub">Punya data warga/iuran lama di spreadsheet? Simpan sebagai CSV lalu impor di sini. Format warga: <span class="mono">nama,alamat,noHp</span> (baris pertama judul kolom). Format iuran: <span class="mono">nama,bulan,jumlah</span> dengan bulan <span class="mono">YYYY-MM</span> — nama harus sama dengan data warga. Impor cadangan JSON lengkap tetap lewat tab Deploy.</p>' +
+              '<div class="actions-row">' +
+              '<label class="btn btn-ghost" for="csv-warga" style="cursor:pointer">Impor CSV warga…</label>' +
+              '<input id="csv-warga" type="file" accept=".csv,text/csv" class="sr-only" data-file="csv-warga">' +
+              '<label class="btn btn-ghost" for="csv-iuran" style="cursor:pointer">Impor CSV iuran…</label>' +
+              '<input id="csv-iuran" type="file" accept=".csv,text/csv" class="sr-only" data-file="csv-iuran">' +
+              '<button type="button" class="btn btn-ghost" data-act="dl-template-warga">Unduh contoh CSV warga</button></div></div>';
           }
           html += '<div class="list">';
           if (state.warga.length === 0) html += '<p class="empty">Belum ada data warga. Data ini terpisah dari data Rumah untuk jimpitan — satu KK di sini bisa menempati satu rumah di tab Rumah.</p>';
           state.warga.slice().sort(function (a, b) { return a.nama.localeCompare(b.nama, "id"); }).forEach(function (w) {
             var iu = iuranOf(w.id, ui.iuranBulan);
             html += '<div class="row-item"><div><p class="t">' + esc(w.nama) + '</p><p class="s">' + esc(w.alamat) +
-              (w.noHp ? " · " + esc(w.noHp) : "") + '</p></div><div style="display:flex;gap:.375rem;flex-wrap:wrap;justify-content:flex-end">' +
-              statusBadge(w.status) + statusBadge(iu ? "Lunas" : "Belum") + "</div></div>";
+              (w.noHp ? " · " + esc(w.noHp) : "") + (w.rt ? " · " + esc(w.rt) : "") + '</p></div><div style="display:flex;gap:.375rem;flex-wrap:wrap;justify-content:flex-end;align-items:center">' +
+              statusBadge(w.status) + statusBadge(iu ? "Lunas" : "Belum") +
+              (manage ? '<button type="button" class="btn btn-ghost" data-act="warga-edit" data-id="' + w.id + '">Ubah</button>' : "") + "</div></div>";
           });
           html += "</div>";
         }
@@ -1424,17 +1873,37 @@
         if (ui.rtSec === "iuran") {
           var nomI = state.settings.nominalIuran || 20000;
           var lunasN = state.warga.filter(function (w) { return iuranOf(w.id, ui.iuranBulan); }).length;
+          var terkumpulBulan = state.iuran.filter(function (i) { return i.bulan === ui.iuranBulan; })
+            .reduce(function (s, i) { return s + (Number(i.jumlah) || 0); }, 0);
           html += '<div class="card"><div style="display:flex;flex-wrap:wrap;gap:.75rem;align-items:flex-end;justify-content:space-between"><div>' +
             '<label class="lbl" for="iuran-bulan">Bulan iuran</label>' +
             '<input id="iuran-bulan" type="month" class="inp" value="' + ui.iuranBulan + '" data-bind="iuranBulan"></div>' +
-            '<p style="margin:0;font-weight:700">' + esc(fmtBulan(ui.iuranBulan)) + " · " + rp(nomI) + " per KK</p></div>" +
-            '<p class="sub" style="margin-top:.5rem">Ceklis bulanan per kepala keluarga — beda dari jimpitan harian per rumah. ' +
-            lunasN + " dari " + state.warga.length + " KK sudah lunas · terkumpul " + rp(lunasN * nomI) + ".</p></div>";
+            '<p style="margin:0;font-weight:700">' + esc(fmtBulan(ui.iuranBulan)) + " · " + rp(nomI) + " per KK (RT utama)</p></div>" +
+            '<p class="sub" style="margin-top:.5rem">Ceklis bulanan per kepala keluarga — beda dari jimpitan harian per rumah. KK di RT lain memakai nominal RT-nya masing-masing. ' +
+            lunasN + " dari " + state.warga.length + " KK sudah lunas · terkumpul " + rp(terkumpulBulan) + ".</p></div>";
+          if (manage) {
+            var pendBayar = pendingBayar()
+              .sort(function (a, b) { return b.id - a.id; });
+            if (pendBayar.length) {
+              html += '<div class="notice-amber"><p style="margin:0;font-weight:700;font-size:.875rem">Bukti transfer warga menunggu verifikasi (' + pendBayar.length + ')</p><div class="list" style="margin-top:.5rem">';
+              pendBayar.forEach(function (b) {
+                var bw = wargaById(b.wargaId);
+                html += '<div class="row-item"><div><p class="t">' + esc(bw ? bw.nama : "?") + " — iuran " + esc(fmtBulan(b.bulan)) + '</p>' +
+                  '<p class="s">' + rp(b.jumlah) + " · " + esc(fmtSingkat(b.tanggal)) +
+                  (b.buktiNama ? " · bukti: " + esc(b.buktiNama) : "") + (b.keterangan ? " · " + esc(b.keterangan) : "") + '</p></div>' +
+                  '<div style="display:flex;gap:.375rem;flex-wrap:wrap;justify-content:flex-end">' +
+                  '<button type="button" class="btn btn-primary" data-act="bayar-verify" data-id="' + b.id + '">Verifikasi — tandai lunas</button>' +
+                  '<button type="button" class="btn btn-danger-ghost" data-act="bayar-reject" data-id="' + b.id + '">Tolak</button></div></div>';
+              });
+              html += "</div></div>";
+            }
+          }
           html += '<div class="list">';
           if (state.warga.length === 0) html += '<p class="empty">Belum ada data warga — tambahkan dulu di subtab Warga &amp; KK.</p>';
           state.warga.slice().sort(function (a, b) { return a.nama.localeCompare(b.nama, "id"); }).forEach(function (w) {
             var iu = iuranOf(w.id, ui.iuranBulan);
             html += '<div class="row-item"><div><p class="t">' + esc(w.nama) + '</p><p class="s">' + esc(w.alamat) +
+              " · iuran " + rp(nominalIuranWarga(w)) +
               (iu ? " · bayar " + esc(fmtSingkat(iu.tanggalBayar)) : "") + '</p></div><div style="display:flex;align-items:center;gap:.5rem">' +
               statusBadge(iu ? "Lunas" : "Belum") +
               (manage ? '<button type="button" class="btn ' + (iu ? "btn-ghost" : "btn-primary") + '" data-act="iuran-toggle" data-id="' + w.id + '">' +
@@ -1446,20 +1915,31 @@
         /* ---- Aset ---- */
         if (ui.rtSec === "aset") {
           if (manage) {
-            html += '<form class="card" data-form="rt-aset"><p style="margin:0 0 .75rem;font-weight:700">Tambah aset RT</p><div class="grid2">' +
+            html += '<form class="card" data-form="rt-aset"><p style="margin:0 0 .75rem;font-weight:700">' +
+              (ui.aEdit ? "Ubah aset RT" : "Tambah aset RT") + '</p><div class="grid2">' +
               fld("a-nama", "Nama aset", "aNama", ui.aNama, "mis. Kursi plastik, tenda, sound system") +
               fld("a-jumlah", "Jumlah", "aJumlah", ui.aJumlah, "", "number") +
               fld("a-kondisi", "Kondisi", "aKondisi", ui.aKondisi, "Baik / Rusak ringan / Rusak") +
               fld("a-lokasi", "Lokasi simpan", "aLokasi", ui.aLokasi, "mis. Balai RT") +
-              "</div>" + '<div class="actions-row"><button type="submit" class="btn btn-primary">Simpan aset</button></div></form>';
+              "</div>" + '<div class="actions-row"><button type="submit" class="btn btn-primary">' +
+              (ui.aEdit ? "Simpan perubahan" : "Simpan aset") + "</button>" +
+              (ui.aEdit ? '<button type="button" class="btn btn-ghost" data-act="rt-edit-cancel" data-jenis="aset">Batal ubah</button>' : "") + "</div></form>";
           }
           html += '<div class="list">';
           if (state.aset.length === 0) html += '<p class="empty">Belum ada aset tercatat.</p>';
           state.aset.forEach(function (a) {
             var dipinjam = state.pinjam.filter(function (p) { return p.asetId === a.id && p.status === "dipinjam"; }).length;
-            html += '<div class="row-item"><div><p class="t">' + esc(a.nama) + '</p><p class="s">Jumlah ' + a.jumlah +
+            var batalA = a.status === "batal";
+            html += '<div class="card" style="padding:.75rem 1rem"><div style="display:flex;justify-content:space-between;gap:.75rem;align-items:flex-start"><div>' +
+              '<p class="t" style="font-size:.875rem;font-weight:700;margin:0"><span' + (batalA ? ' class="strike"' : "") + ">" + esc(a.nama) + '</span></p>' +
+              '<p class="s">Jumlah ' + a.jumlah +
               (a.lokasi ? " · " + esc(a.lokasi) : "") + (dipinjam ? " · " + dipinjam + " sedang dipinjam" : "") +
-              '</p></div>' + statusBadge(a.kondisi) + "</div>";
+              (batalA ? '</p><p style="margin:0;font-size:.75rem;font-weight:600;color:var(--danger)">Dibatalkan: ' + esc(a.alasanBatal || "-") : "") +
+              '</p></div><div style="display:flex;gap:.375rem;flex-wrap:wrap;justify-content:flex-end;align-items:center">' +
+              (batalA ? statusBadge("Batal") : statusBadge(a.kondisi)) +
+              (manage && !batalA ? editBatalBtns("aset", a.id, "aset") : "") + "</div></div>";
+            if (manage && ui.batalJenis === "aset" && ui.batalId === a.id) html += batalFormHtml("aset ini");
+            html += "</div>";
           });
           html += "</div>";
         }
@@ -1496,7 +1976,7 @@
         /* ---- Peminjaman aset ---- */
         if (ui.rtSec === "pinjam") {
           if (manage) {
-            var opts = state.aset.map(function (a) {
+            var opts = state.aset.filter(function (a) { return a.status !== "batal"; }).map(function (a) {
               return '<option value="' + a.id + '"' + (String(ui.pjAset) === String(a.id) ? " selected" : "") + ">" + esc(a.nama) + "</option>";
             }).join("");
             html += '<form class="card" data-form="rt-pinjam"><p style="margin:0 0 .75rem;font-weight:700">Catat peminjaman aset</p><div class="grid2">' +
@@ -1550,18 +2030,28 @@
         /* ---- Agenda ---- */
         if (ui.rtSec === "agenda") {
           if (manage) {
-            html += '<form class="card" data-form="rt-agenda"><p style="margin:0 0 .75rem;font-weight:700">Tambah agenda kegiatan</p><div class="grid2">' +
+            html += '<form class="card" data-form="rt-agenda"><p style="margin:0 0 .75rem;font-weight:700">' +
+              (ui.agEdit ? "Ubah agenda kegiatan" : "Tambah agenda kegiatan") + '</p><div class="grid2">' +
               fld("ag-judul", "Judul kegiatan", "agJudul", ui.agJudul, "mis. Kerja bakti, rapat RT") +
               fld("ag-tgl", "Tanggal", "agTgl", ui.agTgl, "", "date") +
               fld("ag-lokasi", "Lokasi", "agLokasi", ui.agLokasi, "mis. Balai RT") +
               fld("ag-ket", "Keterangan (boleh kosong)", "agKet", ui.agKet, "") +
-              "</div>" + '<div class="actions-row"><button type="submit" class="btn btn-primary">Simpan agenda</button></div></form>';
+              "</div>" + '<div class="actions-row"><button type="submit" class="btn btn-primary">' +
+              (ui.agEdit ? "Simpan perubahan" : "Simpan agenda") + "</button>" +
+              (ui.agEdit ? '<button type="button" class="btn btn-ghost" data-act="rt-edit-cancel" data-jenis="agenda">Batal ubah</button>' : "") + "</div></form>";
           }
           html += '<div class="list">';
           if (state.agenda.length === 0) html += '<p class="empty">Belum ada agenda.</p>';
           state.agenda.slice().sort(function (a, b) { return a.tanggal < b.tanggal ? -1 : 1; }).forEach(function (a) {
-            html += '<div class="row-item"><div><p class="t">' + esc(a.judul) + '</p><p class="s">' + esc(fmtTanggal(a.tanggal)) +
-              (a.lokasi ? " · " + esc(a.lokasi) : "") + (a.keterangan ? " · " + esc(a.keterangan) : "") + "</p></div></div>";
+            var batalG = a.status === "batal";
+            html += '<div class="card" style="padding:.75rem 1rem"><div style="display:flex;justify-content:space-between;gap:.75rem;align-items:flex-start"><div>' +
+              '<p class="t" style="font-size:.875rem;font-weight:700;margin:0"><span' + (batalG ? ' class="strike"' : "") + ">" + esc(a.judul) + '</span></p>' +
+              '<p class="s">' + esc(fmtTanggal(a.tanggal)) +
+              (a.lokasi ? " · " + esc(a.lokasi) : "") + (a.keterangan ? " · " + esc(a.keterangan) : "") +
+              (batalG ? '</p><p style="margin:0;font-size:.75rem;font-weight:600;color:var(--danger)">Dibatalkan: ' + esc(a.alasanBatal || "-") : "") + "</p></div>" +
+              (manage && !batalG ? editBatalBtns("agenda", a.id, "agenda") : batalG ? statusBadge("Batal") : "") + "</div>";
+            if (manage && ui.batalJenis === "agenda" && ui.batalId === a.id) html += batalFormHtml("agenda ini");
+            html += "</div>";
           });
           html += "</div>";
         }
@@ -1569,16 +2059,26 @@
         /* ---- Pengumuman ---- */
         if (ui.rtSec === "umum") {
           if (manage) {
-            html += '<form class="card" data-form="rt-umum"><p style="margin:0 0 .75rem;font-weight:700">Buat pengumuman</p><div class="grid2">' +
+            html += '<form class="card" data-form="rt-umum"><p style="margin:0 0 .75rem;font-weight:700">' +
+              (ui.umEdit ? "Ubah pengumuman" : "Buat pengumuman") + '</p><div class="grid2">' +
               fld("um-judul", "Judul", "umJudul", ui.umJudul, "mis. Jadwal ronda minggu ini") +
               fld("um-isi", "Isi pengumuman", "umIsi", ui.umIsi, "") +
-              "</div>" + '<div class="actions-row"><button type="submit" class="btn btn-primary">Terbitkan</button></div></form>';
+              "</div>" + '<div class="actions-row"><button type="submit" class="btn btn-primary">' +
+              (ui.umEdit ? "Simpan perubahan" : "Terbitkan") + "</button>" +
+              (ui.umEdit ? '<button type="button" class="btn btn-ghost" data-act="rt-edit-cancel" data-jenis="umum">Batal ubah</button>' : "") + "</div></form>";
           }
           html += '<div class="list">';
           if (state.umum.length === 0) html += '<p class="empty">Belum ada pengumuman.</p>';
           state.umum.slice().sort(function (a, b) { return b.id - a.id; }).forEach(function (u) {
-            html += '<div class="row-item"><div><p class="t">' + esc(u.judul) + '</p><p class="s">' + esc(fmtSingkat(u.tanggal)) +
-              (u.isi ? "</p>" + '<p class="s" style="font-size:.875rem">' + esc(u.isi) : "") + "</p></div></div>";
+            var batalU = u.status === "batal";
+            html += '<div class="card" style="padding:.75rem 1rem"><div style="display:flex;justify-content:space-between;gap:.75rem;align-items:flex-start"><div>' +
+              '<p class="t" style="font-size:.875rem;font-weight:700;margin:0"><span' + (batalU ? ' class="strike"' : "") + ">" + esc(u.judul) + '</span></p>' +
+              '<p class="s">' + esc(fmtSingkat(u.tanggal)) +
+              (u.isi ? "</p>" + '<p class="s" style="font-size:.875rem">' + esc(u.isi) : "") +
+              (batalU ? '</p><p style="margin:0;font-size:.75rem;font-weight:600;color:var(--danger)">Dibatalkan: ' + esc(u.alasanBatal || "-") : "") + "</p></div>" +
+              (manage && !batalU ? editBatalBtns("umum", u.id, "pengumuman") : batalU ? statusBadge("Batal") : "") + "</div>";
+            if (manage && ui.batalJenis === "umum" && ui.batalId === u.id) html += batalFormHtml("pengumuman ini");
+            html += "</div>";
           });
           html += "</div>";
         }
@@ -1586,22 +2086,136 @@
         /* ---- UMKM ---- */
         if (ui.rtSec === "umkm") {
           if (manage) {
-            html += '<form class="card" data-form="rt-umkm"><p style="margin:0 0 .75rem;font-weight:700">Tambah UMKM warga</p><div class="grid2">' +
+            html += '<form class="card" data-form="rt-umkm"><p style="margin:0 0 .75rem;font-weight:700">' +
+              (ui.ukEdit ? "Ubah UMKM warga" : "Tambah UMKM warga") + '</p><div class="grid2">' +
               fld("uk-nama", "Nama usaha", "ukNama", ui.ukNama, "mis. Warung Bu Tini") +
               fld("uk-pemilik", "Pemilik", "ukPemilik", ui.ukPemilik, "") +
               fld("uk-kategori", "Kategori", "ukKategori", ui.ukKategori, "Kuliner / Jasa / Kerajinan…") +
               fld("uk-kontak", "Kontak (boleh kosong)", "ukKontak", ui.ukKontak, "No. WA") +
               fld("uk-desk", "Deskripsi (boleh kosong)", "ukDesk", ui.ukDesk, "") +
-              "</div>" + '<div class="actions-row"><button type="submit" class="btn btn-primary">Simpan UMKM</button></div></form>';
+              "</div>" + '<div class="actions-row"><button type="submit" class="btn btn-primary">' +
+              (ui.ukEdit ? "Simpan perubahan" : "Simpan UMKM") + "</button>" +
+              (ui.ukEdit ? '<button type="button" class="btn btn-ghost" data-act="rt-edit-cancel" data-jenis="umkm">Batal ubah</button>' : "") + "</div></form>";
           }
           html += '<div class="list">';
           if (state.umkm.length === 0) html += '<p class="empty">Belum ada UMKM terdaftar.</p>';
           state.umkm.forEach(function (u) {
-            html += '<div class="row-item"><div><p class="t">' + esc(u.namaUsaha) + '</p><p class="s">' +
-              [u.pemilik, u.kategori, u.kontak, u.deskripsi].filter(Boolean).map(esc).join(" · ") + "</p></div>" +
-              (u.kategori ? badge("gray", u.kategori) : "") + "</div>";
+            var batalK = u.status === "batal";
+            html += '<div class="card" style="padding:.75rem 1rem"><div style="display:flex;justify-content:space-between;gap:.75rem;align-items:flex-start"><div>' +
+              '<p class="t" style="font-size:.875rem;font-weight:700;margin:0"><span' + (batalK ? ' class="strike"' : "") + ">" + esc(u.namaUsaha) + '</span></p>' +
+              '<p class="s">' + [u.pemilik, u.kategori, u.kontak, u.deskripsi].filter(Boolean).map(esc).join(" · ") +
+              (batalK ? '</p><p style="margin:0;font-size:.75rem;font-weight:600;color:var(--danger)">Dibatalkan: ' + esc(u.alasanBatal || "-") : "") + "</p></div>" +
+              '<div style="display:flex;gap:.375rem;flex-wrap:wrap;justify-content:flex-end;align-items:center">' +
+              (batalK ? statusBadge("Batal") : (u.kategori ? badge("gray", u.kategori) : "")) +
+              (manage && !batalK ? editBatalBtns("umkm", u.id, "UMKM") : "") + "</div></div>";
+            if (manage && ui.batalJenis === "umkm" && ui.batalId === u.id) html += batalFormHtml("UMKM ini");
+            html += "</div>";
           });
           html += "</div>";
+        }
+
+        /* ---- Broadcast WA (tautan wa.me per warga — tanpa API berbayar) ---- */
+        if (ui.rtSec === "broadcast") {
+          if (!manage) {
+            html += '<p class="empty">Broadcast WA hanya untuk Bendahara dan Super Admin.</p>';
+          } else {
+            var penerima = profilAktif().filter(function (p) { return waNum(p.noHp).length >= 9; });
+            html += '<div class="card"><p style="margin:0 0 .75rem;font-weight:700">Tulis pesan broadcast</p>' +
+              '<p class="sub">Satu pesan untuk banyak warga — tanpa API WhatsApp berbayar. Sistem membuat tautan <span class="mono">wa.me</span> per warga dari nomor HP di Profil Warga; pengurus menekan tombol Kirim per warga (WhatsApp terbuka dengan pesan siap kirim) dan pengirimannya tercatat di log.</p>' +
+              '<div style="margin-top:.75rem"><label class="lbl" for="bc-judul">Judul / keperluan broadcast</label>' +
+              '<input id="bc-judul" type="text" class="inp" placeholder="mis. Pengumuman kerja bakti" value="' + esc(ui.bcJudul) + '" data-bind="bcJudul"></div>' +
+              '<div style="margin-top:.75rem"><label class="lbl" for="bc-pesan">Isi pesan</label>' +
+              '<textarea id="bc-pesan" class="inp" placeholder="Tulis pesan yang akan dikirim ke warga…" data-bind="bcPesan">' + esc(ui.bcPesan) + '</textarea></div>' +
+              '<p class="hint">' + penerima.length + ' warga aktif punya nomor HP/WhatsApp di Profil Warga dan bisa menerima broadcast ini.</p></div>';
+            html += '<div class="list">';
+            if (penerima.length === 0) html += '<p class="empty">Belum ada warga aktif dengan nomor HP di Profil Warga.</p>';
+            penerima.forEach(function (p) {
+              var terkirim = state.broadcast.some(function (b) { return b.penerima === p.nama && b.pesan === ui.bcPesan && ui.bcPesan !== ""; });
+              html += '<div class="row-item"><div><p class="t">' + esc(p.nama) + '</p><p class="s">' + esc(p.noHp) + '</p></div>' +
+                '<div style="display:flex;gap:.375rem;align-items:center;flex-wrap:wrap;justify-content:flex-end">' +
+                (terkirim ? badge("green", "Terkirim") : "") +
+                '<a class="btn btn-primary" data-act="bc-sent" data-nama="' + esc(p.nama) + '" href="https://wa.me/' + waNum(p.noHp) +
+                "?text=" + encodeURIComponent(ui.bcPesan || "") + '" target="_blank" rel="noopener">Kirim WA</a></div></div>';
+            });
+            html += "</div>";
+            html += '<div><h2 class="sec">Log pengiriman broadcast</h2><div class="list" style="margin-top:.75rem">';
+            if (state.broadcast.length === 0) html += '<p class="empty">Belum ada pengiriman tercatat.</p>';
+            state.broadcast.slice().sort(function (a, b) { return b.id - a.id; }).slice(0, 50).forEach(function (b) {
+              html += '<div class="row-item"><div><p class="t" style="font-weight:600">' + esc(b.judul || "Broadcast") + " → " + esc(b.penerima) + '</p>' +
+                '<p class="s">' + esc(fmtSingkat(b.tanggal)) + " · oleh " + esc(b.oleh) + '</p></div></div>';
+            });
+            html += "</div></div>";
+          }
+        }
+
+        /* ---- Iuran Saya: warga cek tunggakan & bayar mandiri dengan bukti transfer ---- */
+        if (ui.rtSec === "bayar") {
+          var me = ui.myWargaId ? wargaById(ui.myWargaId) : null;
+          if (!me) {
+            html += '<form class="card" data-form="my-login"><p style="margin:0 0 .75rem;font-weight:700">Masuk warga — cek iuran saya</p>' +
+              '<p class="sub">Masukkan nama kepala keluarga dan nomor HP persis seperti yang dicatat pengurus di data Warga &amp; KK. Tidak perlu PIN pengurus — halaman ini hanya menampilkan data KK Anda sendiri.</p>' +
+              '<div class="grid2" style="margin-top:.75rem">' +
+              fld("my-nama", "Nama kepala keluarga", "myNama", ui.myNama, "mis. Bapak Slamet") +
+              fld("my-hp", "Nomor HP terdaftar", "myHp", ui.myHp, "08…") +
+              "</div>" +
+              (ui.myErr ? '<p class="field-err">' + esc(ui.myErr) + "</p>" : "") +
+              '<div class="actions-row"><button type="submit" class="btn btn-primary">Lihat iuran saya</button></div></form>';
+          } else {
+            var nomKu = nominalIuranWarga(me);
+            var months = [];
+            var baseD = new Date(monthStr() + "-01T00:00:00");
+            for (var mi = 0; mi < 12; mi++) {
+              var dd = new Date(baseD.getFullYear(), baseD.getMonth() - mi, 1);
+              months.push(dd.getFullYear() + "-" + pad(dd.getMonth() + 1));
+            }
+            var tunggakan = months.filter(function (m) {
+              return !iuranOf(me.id, m) && !state.bayar.some(function (b) { return b.wargaId === me.id && b.bulan === m && b.status === "menunggu"; });
+            });
+            html += '<div class="card"><div style="display:flex;justify-content:space-between;gap:.75rem;flex-wrap:wrap;align-items:flex-start"><div>' +
+              '<p style="margin:0;font-weight:700;font-size:1rem">' + esc(me.nama) + '</p>' +
+              '<p class="s">' + esc(me.alamat) + (me.rt ? " · " + esc(me.rt) : "") + " · iuran " + rp(nomKu) + " per bulan</p></div>" +
+              '<button type="button" class="btn btn-ghost" data-act="my-logout">Keluar</button></div>' +
+              '<p style="margin:.75rem 0 0;font-weight:700">' + (tunggakan.length === 0
+                ? "Tidak ada tunggakan — iuran 12 bulan terakhir lunas atau sedang diverifikasi."
+                : "Tunggakan: " + tunggakan.length + " bulan · total " + rp(tunggakan.length * nomKu)) + "</p>" +
+              (ui.myMsg ? '<p class="ok-note" style="margin-top:.5rem">' + esc(ui.myMsg) + "</p>" : "") +
+              (ui.myErr ? '<p class="field-err" style="margin-top:.5rem">' + esc(ui.myErr) + "</p>" : "") +
+              '</div><div class="month-grid">';
+            months.forEach(function (m) {
+              var iu = iuranOf(me.id, m);
+              var pend = state.bayar.filter(function (b) { return b.wargaId === me.id && b.bulan === m && b.status === "menunggu"; })[0];
+              var tolak = state.bayar.filter(function (b) { return b.wargaId === me.id && b.bulan === m && b.status === "ditolak"; })[0];
+              html += '<div class="month-cell"><p style="margin:0;font-weight:700">' + esc(fmtBulan(m)) + '</p>' +
+                (iu ? '<p style="margin:.25rem 0 0">' + badge("green", "Lunas") + "</p>"
+                  : pend ? '<p style="margin:.25rem 0 0">' + badge("amber", "Menunggu verifikasi bendahara") + "</p>"
+                  : '<p style="margin:.25rem 0 0">' + badge("gray", "Belum bayar") + (tolak ? ' <span style="font-size:.75rem;color:var(--danger);font-weight:600">bukti sebelumnya ditolak</span>' : "") + "</p>" +
+                    '<button type="button" class="btn btn-primary" style="margin-top:.5rem" data-act="my-pay-open" data-bulan="' + m + '">Bayar bulan ini</button>') +
+                "</div>";
+            });
+            html += "</div>";
+            if (ui.myBulan) {
+              html += '<form class="card" data-form="my-pay"><p style="margin:0 0 .75rem;font-weight:700">Bayar iuran ' + esc(fmtBulan(ui.myBulan)) + '</p>' +
+                '<p class="sub">Transfer ke rekening/kas RT seperti biasa, lalu lampirkan nama berkas bukti transfer di sini. Status pembayaran <b>Menunggu</b> sampai bendahara memverifikasi — baru setelah itu bulan ini tercatat Lunas.</p>' +
+                '<div class="grid2" style="margin-top:.75rem">' +
+                fld("my-jumlah", "Jumlah ditransfer (Rp)", "myJumlah", ui.myJumlah, String(nomKu), "number") +
+                '<div><label class="lbl" for="my-bukti">Bukti transfer (foto/struk)</label>' +
+                '<input id="my-bukti" type="file" accept="image/*,.pdf" class="inp" data-file="my-bukti">' +
+                (ui.myBuktiNama ? '<p class="hint">Berkas: ' + esc(ui.myBuktiNama) + "</p>" : '<p class="hint">Nama berkas tercatat sebagai bukti; tunjukkan berkas aslinya ke bendahara bila diminta.</p>') + "</div>" +
+                fld("my-ket", "Keterangan (boleh kosong)", "myKet", ui.myKet, "mis. transfer dari rekening a.n. …") +
+                '</div><div class="actions-row"><button type="submit" class="btn btn-primary">Kirim bukti — status Menunggu</button>' +
+                '<button type="button" class="btn btn-ghost" data-act="my-pay-close">Batal</button></div></form>';
+            }
+            var myBayar = state.bayar.filter(function (b) { return b.wargaId === me.id; }).sort(function (a, b) { return b.id - a.id; });
+            if (myBayar.length) {
+              html += '<div><h2 class="sec">Riwayat pembayaran saya</h2><div class="list" style="margin-top:.75rem">';
+              myBayar.forEach(function (b) {
+                html += '<div class="row-item"><div><p class="t">Iuran ' + esc(fmtBulan(b.bulan)) + '</p><p class="s">' +
+                  esc(fmtSingkat(b.tanggal)) + " · " + rp(b.jumlah) + (b.buktiNama ? " · bukti: " + esc(b.buktiNama) : "") + '</p></div>' +
+                  statusBadge(b.status === "menunggu" ? "Menunggu" : b.status === "terverifikasi" ? "Terverifikasi" : "Ditolak") + "</div>";
+              });
+              html += "</div></div>";
+            }
+          }
         }
 
         /* ---- Audit log ---- */
@@ -1636,7 +2250,7 @@
             (ui.setupError ? '<p class="field-err">' + esc(ui.setupError) + "</p>" : "") +
             '<div class="actions-row"><button type="submit" class="btn btn-primary">Simpan PIN &amp; masuk sebagai Super Admin</button>' +
             '<button type="button" class="btn btn-ghost" data-act="login-close">Batal</button></div>' +
-            '<p class="hint" style="margin-top:.75rem">PIN tersimpan hanya di perangkat ini dan ikut ter-ekspor di file cadangan JSON (cadangan versi 3). Karena versi ini statis tanpa server, perlindungan ini mencegah warga biasa mengubah data dari tautan publik; keamanan penuh antarperangkat membutuhkan versi server.</p>' +
+            '<p class="hint" style="margin-top:.75rem">PIN tersimpan hanya di perangkat ini dan ikut ter-ekspor di file cadangan JSON (cadangan versi 4). Karena versi ini statis tanpa server, perlindungan ini mencegah warga biasa mengubah data dari tautan publik; keamanan penuh antarperangkat membutuhkan versi server.</p>' +
             "</form></div>";
         }
         var html = '<div class="modal-overlay"><form class="modal-card" data-form="login">' +
@@ -1808,7 +2422,7 @@
         var html = '<div class="stack-lg">';
         html += "<section><h2 class=\"sec\">Deploy ke Vercel — gratis</h2>" +
           '<p class="sub">Halaman yang sedang Anda buka ini adalah versi Vercelnya: satu file statis ' +
-          '<span class="mono">index.html</span>, tanpa build step dan tanpa server — sudah termasuk modul jimpitan harian dan modul RT/RW lengkap (warga, iuran, aset, surat, peminjaman, pengaduan, agenda, pengumuman, UMKM, audit log). Tiga langkah di bawah ' +
+          '<span class="mono">index.html</span>, tanpa build step dan tanpa server — sudah termasuk modul jimpitan harian dan modul RT/RW lengkap (profil warga per jiwa, warga &amp; KK, iuran + pembayaran mandiri warga, broadcast WA, aset, surat, peminjaman, pengaduan, agenda, pengumuman, UMKM, audit log). Tiga langkah di bawah ' +
           "membuatnya tayang online di alamat <span class=\"mono\">*.vercel.app</span> dengan paket Hobby (Rp0).</p></section>";
         html += '<section class="card card-lg"><ol class="steps">' +
           "<li><h3>Unduh paket deploy</h3><p>Unduh <span class=\"mono\">vercel.json</span> dan panduan lengkapnya di bagian Paket file di bawah. " +
@@ -1860,7 +2474,8 @@
         if (butuhNama()) return;
         total = Math.round(Number(total));
         if (!isFinite(total) || total < 1) { ui.error = "Nominal harus angka lebih dari 0."; render(); return; }
-        var nominal = state.settings.nominalBaku;
+        var hRef = houseById(houseId);
+        var nominal = hRef ? nominalRumah(hRef) : state.settings.nominalBaku;
         var jimpitan = Math.min(total, nominal);
         var kelebihan = total - jimpitan;
         var existing = null;
@@ -1898,9 +2513,104 @@
         });
         downloadFile("laporan-jimpitan-" + ui.bulan + ".csv", lines.join("\n"), "text/csv;charset=utf-8");
       }
+      function parseCsv(text) {
+        var delim = text.indexOf(";") >= 0 && text.indexOf(",") < 0 ? ";" : (text.split("\n")[0].indexOf(";") > text.split("\n")[0].indexOf(",") ? ";" : ",");
+        var rows = [], row = [], cur = "", inQ = false;
+        for (var i = 0; i < text.length; i++) {
+          var ch = text[i];
+          if (inQ) {
+            if (ch === '"') { if (text[i + 1] === '"') { cur += '"'; i++; } else inQ = false; }
+            else cur += ch;
+          } else if (ch === '"') inQ = true;
+          else if (ch === delim) { row.push(cur.trim()); cur = ""; }
+          else if (ch === "\n" || ch === "\r") {
+            if (ch === "\r" && text[i + 1] === "\n") i++;
+            row.push(cur.trim()); cur = "";
+            if (row.length > 1 || row[0] !== "") rows.push(row);
+            row = [];
+          } else cur += ch;
+        }
+        row.push(cur.trim());
+        if (row.length > 1 || row[0] !== "") rows.push(row);
+        return rows;
+      }
+      function resetProfilForm() {
+        ui.pfEdit = null; ui.pfHouse = ""; ui.pfKK = ""; ui.pfNik = ""; ui.pfNama = "";
+        ui.pfHub = "Kepala Keluarga"; ui.pfPekerjaan = ""; ui.pfPendidikan = ""; ui.pfDarah = "";
+        ui.pfLahir = ""; ui.pfAgama = ""; ui.pfKawin = ""; ui.pfHp = "";
+        ui.pfStatus = "aktif"; ui.pfAlasan = "";
+      }
+      function unduhDemografiCsv() {
+        function q(v) { return '"' + String(v).replace(/"/g, '""') + '"'; }
+        var lines = [["Kelompok", "Kategori", "Jumlah jiwa", "Persentase"].map(q).join(",")];
+        var total = profilAktif().length;
+        demografiGroups().forEach(function (g) {
+          g.items.forEach(function (i) {
+            lines.push([g.judul, i.label, i.jumlah, total > 0 ? Math.round(i.jumlah / total * 100) + "%" : "0%"].map(q).join(","));
+          });
+        });
+        lines.push("");
+        lines.push(["Rincian per warga (warga aktif saja — NIK tidak disertakan)"].map(q).join(","));
+        lines.push(["Nama", "No KK", "Hubungan", "Usia", "Agama", "Status kawin", "Pekerjaan", "Pendidikan", "Gol. darah"].map(q).join(","));
+        profilAktif().forEach(function (p) {
+          var u = umurDari(p.tanggalLahir);
+          lines.push([p.nama, p.noKK || "", p.hubungan || "", u == null ? "" : u, p.agama || "", p.statusKawin || "", p.pekerjaan || "", p.pendidikan || "", p.golonganDarah || ""].map(q).join(","));
+        });
+        downloadFile("rincian-demografi-" + todayStr() + ".csv", lines.join("\n"), "text/csv;charset=utf-8");
+      }
+      function arusKasRows() {
+        var rows = [];
+        activeCols().forEach(function (c) {
+          rows.push({ tanggal: c.tanggal, uraian: "Jimpitan " + colRowHouse(c) + " (petugas " + c.petugas + ")", kas: "Utama", masuk: c.total, keluar: 0 });
+        });
+        state.iuran.forEach(function (i) {
+          var w = wargaById(i.wargaId);
+          rows.push({ tanggal: i.tanggalBayar || (i.bulan + "-01"), uraian: "Iuran " + fmtBulan(i.bulan) + " — " + (w ? w.nama : "?"), kas: "Utama", masuk: Number(i.jumlah) || 0, keluar: 0 });
+        });
+        activeExps().forEach(function (e) {
+          rows.push({ tanggal: e.tanggal, uraian: e.keperluan + (e.keterangan ? " (" + e.keterangan + ")" : ""), kas: e.kas === "proyek" ? "Proyek/Kegiatan" : e.kas === "kematian" ? "Kematian" : "Utama", masuk: 0, keluar: e.jumlah });
+        });
+        rows.sort(function (a, b) { return a.tanggal < b.tanggal ? -1 : a.tanggal > b.tanggal ? 1 : 0; });
+        return rows;
+      }
+      function unduhKasCsv() {
+        function q(v) { return '"' + String(v).replace(/"/g, '""') + '"'; }
+        var d = dashboard();
+        var lines = [["Tanggal", "Uraian", "Kas", "Masuk", "Keluar"].map(q).join(",")];
+        arusKasRows().forEach(function (r) { lines.push([r.tanggal, r.uraian, r.kas, r.masuk, r.keluar].map(q).join(",")); });
+        lines.push("");
+        lines.push(["Saldo awal", d.saldoAwalTotal].map(q).join(","));
+        lines.push(["Total masuk", d.totalMasuk].map(q).join(","));
+        lines.push(["Total keluar", d.totalKeluar].map(q).join(","));
+        lines.push(["Saldo akhir", d.saldo].map(q).join(","));
+        lines.push(["Kas Utama", d.perKas.utama].map(q).join(","));
+        lines.push(["Kas Proyek/Kegiatan", d.perKas.proyek].map(q).join(","));
+        lines.push(["Kas Kematian", d.perKas.kematian].map(q).join(","));
+        downloadFile("arus-kas-" + todayStr() + ".csv", lines.join("\n"), "text/csv;charset=utf-8");
+      }
+      function unduhKasHtml() {
+        var d = dashboard();
+        var s = state.settings;
+        function rowHtml(r) {
+          return "<tr><td>" + esc(fmtSingkat(r.tanggal)) + "</td><td>" + esc(r.uraian) + "</td><td>" + esc(r.kas) +
+            '</td><td style="text-align:right">' + (r.masuk ? esc(rp(r.masuk)) : "—") +
+            '</td><td style="text-align:right">' + (r.keluar ? esc(rp(r.keluar)) : "—") + "</td></tr>";
+        }
+        var doc = '<!doctype html><html lang="id"><head><meta charset="utf-8"><title>Laporan Arus Kas ' + esc(s.namaRt) + '</title>' +
+          "<style>body{font-family:Arial,sans-serif;margin:2rem;color:#212529}table{border-collapse:collapse;width:100%}th,td{border:1px solid #999;padding:.4rem .6rem;font-size:14px}th{background:#eee;text-align:left}h1{font-size:20px}h2{font-size:16px;margin-top:1.5rem}.r{text-align:right}@media print{button{display:none}}</style></head><body>" +
+          "<h1>Laporan Arus Kas — " + esc(s.namaRt) + (s.wilayah ? " · " + esc(s.wilayah) : "") + "</h1>" +
+          "<p>Dicetak " + esc(fmtTanggal(todayStr())) + " · Saldo awal " + esc(rp(d.saldoAwalTotal)) + " · Total masuk " + esc(rp(d.totalMasuk)) +
+          " · Total keluar " + esc(rp(d.totalKeluar)) + " · <b>Saldo akhir " + esc(rp(d.saldo)) + "</b></p>" +
+          "<p>Kas Utama " + esc(rp(d.perKas.utama)) + " · Kas Proyek/Kegiatan " + esc(rp(d.perKas.proyek)) + " · Kas Kematian " + esc(rp(d.perKas.kematian)) + "</p>" +
+          "<p>Untuk mencetak: buka file ini di browser lalu gunakan menu Cetak (Ctrl+P).</p>" +
+          "<h2>Rincian arus kas</h2><table><thead><tr><th>Tanggal</th><th>Uraian</th><th>Kas</th><th class=\"r\">Masuk</th><th class=\"r\">Keluar</th></tr></thead><tbody>" +
+          arusKasRows().map(rowHtml).join("") +
+          "</tbody></table></body></html>";
+        downloadFile("laporan-arus-kas-" + todayStr() + ".html", doc, "text/html;charset=utf-8");
+      }
       function resetHouseForm() {
         ui.houseForm = null; ui.fNomor = ""; ui.fPenghuni = ""; ui.fBlok = "";
-        ui.fStatus = "aktif"; ui.fCatatan = ""; ui.fError = "";
+        ui.fStatus = "aktif"; ui.fCatatan = ""; ui.fError = ""; ui.fRt = "";
       }
 
       document.addEventListener("click", function (ev) {
@@ -1958,12 +2668,127 @@
           ui.houseForm = { editingId: h.id };
           ui.fNomor = h.nomor; ui.fPenghuni = h.namaPenghuni; ui.fBlok = h.blok || "";
           ui.fStatus = h.status; ui.fCatatan = h.catatan || ""; ui.fError = ""; ui.error = "";
+          ui.fRt = h.rt || "";
           render();
         }
         else if (act === "house-cancel") { resetHouseForm(); render(); }
         else if (act === "exp-void-open") { ui.voidExpFor = Number(t.getAttribute("data-id")); ui.voidExpReason = ""; render(); }
         else if (act === "exp-void-close") { ui.voidExpFor = null; render(); }
         else if (act === "unduh-csv") { if (!isPengurus()) return; unduhCsv(); }
+        else if (act === "notif-toggle") { ui.notifOpen = !ui.notifOpen; render(); }
+        else if (act === "notif-go") {
+          var nt = t.getAttribute("data-tab"), ns = t.getAttribute("data-sec");
+          if (!canTab(nt)) return;
+          state.tab = nt; if (ns) ui.rtSec = ns;
+          ui.notifOpen = false; ui.error = ""; ui.rtError = ""; ui.rtDone = "";
+          render(); window.scrollTo(0, 0);
+        }
+        else if (act === "cari-warga") { ui.cariWargaRun = true; render(); }
+        else if (act === "demo-csv") { unduhDemografiCsv(); }
+        else if (act === "dl-kas-csv") { unduhKasCsv(); }
+        else if (act === "dl-kas-html") { unduhKasHtml(); }
+        else if (act === "house-arsip-open") { if (!canKelola()) return; ui.houseArsipFor = Number(t.getAttribute("data-id")); ui.houseArsipReason = ""; render(); }
+        else if (act === "house-arsip-close") { ui.houseArsipFor = null; render(); }
+        else if (act === "pf-filter") { ui.pfFilter = t.getAttribute("data-val"); render(); }
+        else if (act === "pf-cancel") { resetProfilForm(); render(); }
+        else if (act === "pf-edit") {
+          if (!canKelola()) return;
+          var pf = profilById(Number(t.getAttribute("data-id")));
+          if (!pf) return;
+          ui.pfEdit = pf.id; ui.pfHouse = pf.houseId ? String(pf.houseId) : "";
+          ui.pfKK = pf.noKK || ""; ui.pfNik = pf.nik || ""; ui.pfNama = pf.nama || "";
+          ui.pfHub = pf.hubungan || "Kepala Keluarga"; ui.pfPekerjaan = pf.pekerjaan || "";
+          ui.pfPendidikan = pf.pendidikan || ""; ui.pfDarah = pf.golonganDarah || "";
+          ui.pfLahir = pf.tanggalLahir || ""; ui.pfAgama = pf.agama || ""; ui.pfKawin = pf.statusKawin || "";
+          ui.pfHp = pf.noHp || ""; ui.pfStatus = pf.statusTinggal || "aktif"; ui.pfAlasan = "";
+          ui.rtError = ""; ui.rtDone = ""; render(); window.scrollTo(0, 0);
+        }
+        else if (act === "warga-cancel") { ui.wEdit = null; ui.wNama = ""; ui.wAlamat = ""; ui.wHp = ""; ui.wStatus = "aktif"; ui.wRt = ""; render(); }
+        else if (act === "warga-edit") {
+          if (!canKelola()) return;
+          var wv = wargaById(Number(t.getAttribute("data-id")));
+          if (!wv) return;
+          ui.wEdit = wv.id; ui.wNama = wv.nama; ui.wAlamat = wv.alamat; ui.wHp = wv.noHp || "";
+          ui.wStatus = wv.status || "aktif"; ui.wRt = wv.rt || "";
+          ui.rtError = ""; ui.rtDone = ""; render(); window.scrollTo(0, 0);
+        }
+        else if (act === "rt-edit") {
+          if (!canKelola()) return;
+          var jn = t.getAttribute("data-jenis"), jid = Number(t.getAttribute("data-id"));
+          if (jn === "aset") { var xa = asetById(jid); if (!xa) return; ui.aEdit = jid; ui.aNama = xa.nama; ui.aJumlah = String(xa.jumlah); ui.aKondisi = xa.kondisi; ui.aLokasi = xa.lokasi || ""; }
+          else if (jn === "agenda") { var xg = null; state.agenda.forEach(function (x) { if (x.id === jid) xg = x; }); if (!xg) return; ui.agEdit = jid; ui.agJudul = xg.judul; ui.agTgl = xg.tanggal; ui.agLokasi = xg.lokasi || ""; ui.agKet = xg.keterangan || ""; }
+          else if (jn === "umum") { var xu = null; state.umum.forEach(function (x) { if (x.id === jid) xu = x; }); if (!xu) return; ui.umEdit = jid; ui.umJudul = xu.judul; ui.umIsi = xu.isi || ""; }
+          else if (jn === "umkm") { var xk = null; state.umkm.forEach(function (x) { if (x.id === jid) xk = x; }); if (!xk) return; ui.ukEdit = jid; ui.ukNama = xk.namaUsaha; ui.ukPemilik = xk.pemilik; ui.ukKategori = xk.kategori || ""; ui.ukKontak = xk.kontak || ""; ui.ukDesk = xk.deskripsi || ""; }
+          ui.batalJenis = ""; ui.batalId = null; ui.rtError = ""; ui.rtDone = ""; render(); window.scrollTo(0, 0);
+        }
+        else if (act === "rt-edit-cancel") {
+          var jc = t.getAttribute("data-jenis");
+          if (jc === "aset") { ui.aEdit = null; ui.aNama = ""; ui.aJumlah = "1"; ui.aLokasi = ""; }
+          else if (jc === "agenda") { ui.agEdit = null; ui.agJudul = ""; ui.agLokasi = ""; ui.agKet = ""; }
+          else if (jc === "umum") { ui.umEdit = null; ui.umJudul = ""; ui.umIsi = ""; }
+          else if (jc === "umkm") { ui.ukEdit = null; ui.ukNama = ""; ui.ukPemilik = ""; ui.ukKategori = ""; ui.ukKontak = ""; ui.ukDesk = ""; }
+          render();
+        }
+        else if (act === "batal-open") { if (!canKelola()) return; ui.batalJenis = t.getAttribute("data-jenis"); ui.batalId = Number(t.getAttribute("data-id")); ui.batalReason = ""; render(); }
+        else if (act === "batal-close") { ui.batalJenis = ""; ui.batalId = null; render(); }
+        else if (act === "bc-sent") {
+          if (!canKelola()) return;
+          state.broadcast.push({
+            id: nextId(), tanggal: todayStr(), judul: ui.bcJudul.trim(),
+            pesan: ui.bcPesan, penerima: t.getAttribute("data-nama") || "",
+            oleh: state.nama.trim() || ROLE_LABEL[state.role]
+          });
+          logAudit("Broadcast WA terkirim ke " + (t.getAttribute("data-nama") || "") + (ui.bcJudul.trim() ? " (" + ui.bcJudul.trim() + ")" : "") + ".");
+          setTimeout(render, 50);
+        }
+        else if (act === "bayar-verify") {
+          if (!canKelola()) return;
+          var bvid = Number(t.getAttribute("data-id"));
+          state.bayar.forEach(function (b) {
+            if (b.id === bvid && b.status === "menunggu") {
+              b.status = "terverifikasi";
+              if (!iuranOf(b.wargaId, b.bulan)) {
+                state.iuran.push({ id: nextId(), wargaId: b.wargaId, bulan: b.bulan, jumlah: b.jumlah, status: "lunas", tanggalBayar: todayStr() });
+              }
+              var bwn = wargaById(b.wargaId);
+              logAudit("Bukti transfer iuran " + fmtBulan(b.bulan) + " dari " + (bwn ? bwn.nama : b.wargaId) + " diverifikasi — bulan itu lunas " + rp(b.jumlah) + ".");
+            }
+          });
+          ui.rtDone = "Pembayaran terverifikasi — iuran bulan tersebut tercatat lunas."; ui.rtError = ""; render();
+        }
+        else if (act === "bayar-reject") {
+          if (!canKelola()) return;
+          var brid = Number(t.getAttribute("data-id"));
+          state.bayar.forEach(function (b) {
+            if (b.id === brid && b.status === "menunggu") {
+              b.status = "ditolak";
+              var brn = wargaById(b.wargaId);
+              logAudit("Bukti transfer iuran " + fmtBulan(b.bulan) + " dari " + (brn ? brn.nama : b.wargaId) + " DITOLAK.");
+            }
+          });
+          ui.rtDone = "Pembayaran ditolak — warga bisa mengirim ulang bukti yang benar."; ui.rtError = ""; render();
+        }
+        else if (act === "my-logout") { ui.myWargaId = null; ui.myBulan = ""; ui.myMsg = ""; ui.myErr = ""; render(); }
+        else if (act === "my-pay-open") { ui.myBulan = t.getAttribute("data-bulan"); var mw = wargaById(ui.myWargaId); ui.myJumlah = mw ? String(nominalIuranWarga(mw)) : ""; ui.myBuktiNama = ""; ui.myKet = ""; ui.myErr = ""; render(); }
+        else if (act === "my-pay-close") { ui.myBulan = ""; render(); }
+        else if (act === "rt-del") {
+          if (!isSuper()) return;
+          var rtn = t.getAttribute("data-nama");
+          state.settings.rtList = (state.settings.rtList || []).filter(function (r) { return r.nama !== rtn; });
+          logAudit("RT di daftar RW dihapus: " + rtn + " (rumah/KK yang bertanda RT ini kembali memakai nominal baku).");
+          render();
+        }
+        else if (act === "pengurus-del") {
+          if (!isSuper()) return;
+          var pgi = Number(t.getAttribute("data-idx"));
+          var pgd = (state.settings.pengurus || [])[pgi];
+          state.settings.pengurus.splice(pgi, 1);
+          if (pgd) logAudit("Pengurus di halaman depan dihapus: " + pgd.nama + ".");
+          render();
+        }
+        else if (act === "dl-template-warga") {
+          downloadFile("contoh-impor-warga.csv", "nama,alamat,noHp\nBapak Slamet,Rumah 12 Blok A,081234567890\n", "text/csv;charset=utf-8");
+        }
         else if (act === "rt-sec") {
           var wantSec = t.getAttribute("data-sec");
           var allowedSecs = rtSecsForRole();
@@ -1977,10 +2802,21 @@
           var ex = iuranOf(wid, ui.iuranBulan);
           if (ex) {
             state.iuran = state.iuran.filter(function (x) { return x.id !== ex.id; });
+            /* Lunas dibatalkan → bukti transfer bulan itu kembali menunggu keputusan,
+               supaya lonceng, ceklis, dan riwayat warga tetap sejalan. */
+            state.bayar.forEach(function (b) {
+              if (b.wargaId === wid && b.bulan === ui.iuranBulan && b.status === "terverifikasi") b.status = "menunggu";
+            });
             logAudit("Iuran " + fmtBulan(ui.iuranBulan) + " untuk " + (w ? w.nama : wid) + " dibatalkan (kembali belum lunas).");
           } else {
-            state.iuran.push({ id: nextId(), wargaId: wid, bulan: ui.iuranBulan, jumlah: state.settings.nominalIuran || 20000, status: "lunas", tanggalBayar: todayStr() });
-            logAudit("Iuran " + fmtBulan(ui.iuranBulan) + " untuk " + (w ? w.nama : wid) + " ditandai lunas " + rp(state.settings.nominalIuran || 20000) + ".");
+            var nomW = w ? nominalIuranWarga(w) : (state.settings.nominalIuran || 20000);
+            state.iuran.push({ id: nextId(), wargaId: wid, bulan: ui.iuranBulan, jumlah: nomW, status: "lunas", tanggalBayar: todayStr() });
+            /* Bulan ini lunas → bukti transfer yang masih menggantung untuk bulan
+               yang sama ikut terverifikasi, tidak lagi dihitung menunggu. */
+            state.bayar.forEach(function (b) {
+              if (b.wargaId === wid && b.bulan === ui.iuranBulan && b.status === "menunggu") b.status = "terverifikasi";
+            });
+            logAudit("Iuran " + fmtBulan(ui.iuranBulan) + " untuk " + (w ? w.nama : wid) + " ditandai lunas " + rp(nomW) + ".");
           }
           ui.rtDone = "Ceklis iuran diperbarui."; ui.rtError = "";
           render();
@@ -2014,12 +2850,13 @@
         else if (act === "backup-export") {
           if (!isPengurus()) { ui.loginOpen = true; ui.loginError = "Ekspor cadangan khusus pengurus. Masuk dulu dengan PIN."; render(); return; }
           var data = {
-            aplikasi: "sistem-jimpitan-warga-rt", versiCadangan: 3, dieksporPada: new Date().toISOString(),
+            aplikasi: "sistem-jimpitan-warga-rt", versiCadangan: 4, dieksporPada: new Date().toISOString(),
             settings: state.settings, pins: state.pins, houses: state.houses,
             collections: state.collections, expenses: state.expenses,
             warga: state.warga, iuran: state.iuran, aset: state.aset, surat: state.surat,
             pinjam: state.pinjam, aduan: state.aduan, agenda: state.agenda,
-            umum: state.umum, umkm: state.umkm, audit: state.audit, seq: state.seq
+            umum: state.umum, umkm: state.umkm, audit: state.audit, seq: state.seq,
+            profil: state.profil, broadcast: state.broadcast, bayar: state.bayar
           };
           downloadFile("cadangan-jimpitan-" + todayStr() + ".json", JSON.stringify(data, null, 2), "application/json;charset=utf-8");
           ui.backupMsg = "Cadangan diekspor. Simpan file JSON-nya di tempat aman.";
@@ -2038,6 +2875,7 @@
           ui.cari = el.value; ui.focusId = "cari-rumah"; render(); return;
         }
         if (bind === "iuranBulan") { ui.iuranBulan = el.value || monthStr(); render(); return; }
+        if (bind === "pfCari") { ui.pfCari = el.value; ui.focusId = "pf-cari"; render(); return; }
         if (bind in ui) ui[bind] = el.value;
       });
       document.addEventListener("change", function (ev) {
@@ -2046,8 +2884,68 @@
         if (selBind && selBind in ui) { ui[selBind] = el.value; return; }
         var bind = el.getAttribute && el.getAttribute("data-bind");
         if (bind === "fStatus") { ui.fStatus = el.value; return; }
+        if (bind === "bcPesan" || bind === "bcJudul") { ui[bind] = el.value; render(); return; }
         if (bind === "tanggal") { ui.tanggal = el.value || todayStr(); render(); return; }
         if (bind === "bulan") { ui.bulan = el.value || monthStr(); render(); return; }
+        var fileKind = el.getAttribute && el.getAttribute("data-file");
+        if (fileKind === "pg-foto") {
+          var pf0 = el.files && el.files[0];
+          if (!pf0) return;
+          var pr = new FileReader();
+          pr.onload = function () { ui.pgFoto = String(pr.result); render(); };
+          pr.readAsDataURL(pf0);
+          return;
+        }
+        if (fileKind === "my-bukti") {
+          var bf0 = el.files && el.files[0];
+          if (bf0) { ui.myBuktiNama = bf0.name; ui.myErr = ""; render(); }
+          return;
+        }
+        if (fileKind === "csv-warga" || fileKind === "csv-iuran") {
+          if (!canKelola()) { ui.rtError = "Impor CSV hanya untuk Bendahara dan Super Admin."; ui.rtDone = ""; render(); return; }
+          var cf0 = el.files && el.files[0];
+          if (!cf0) return;
+          var cr = new FileReader();
+          cr.onload = function () {
+            try {
+              var rows = parseCsv(String(cr.result));
+              var mulai = 0;
+              if (rows.length && /nama/i.test(rows[0][0] || "")) mulai = 1;
+              var masuk = 0, lewati = 0;
+              if (fileKind === "csv-warga") {
+                for (var ri = mulai; ri < rows.length; ri++) {
+                  var r = rows[ri];
+                  if (!r[0]) { lewati++; continue; }
+                  var sudahAda = state.warga.some(function (w) { return w.nama.toLowerCase() === r[0].toLowerCase(); });
+                  if (sudahAda) { lewati++; continue; }
+                  state.warga.push({ id: nextId(), nama: r[0], alamat: r[1] || "", noHp: r[2] || "", status: "aktif", rt: r[3] || "" });
+                  masuk++;
+                }
+                logAudit("Impor CSV warga: " + masuk + " KK masuk, " + lewati + " baris dilewati (kosong/duplikat).");
+                ui.rtDone = "Impor warga selesai: " + masuk + " KK ditambahkan, " + lewati + " baris dilewati.";
+              } else {
+                for (var rj = mulai; rj < rows.length; rj++) {
+                  var r2 = rows[rj];
+                  var w2 = null;
+                  state.warga.forEach(function (w) { if (w.nama.toLowerCase() === String(r2[0] || "").toLowerCase()) w2 = w; });
+                  if (!w2 || !/^\d{4}-\d{2}$/.test(r2[1] || "") || iuranOf(w2.id, r2[1])) { lewati++; continue; }
+                  var j2 = Number(r2[2]);
+                  state.iuran.push({ id: nextId(), wargaId: w2.id, bulan: r2[1], jumlah: isFinite(j2) && j2 > 0 ? Math.round(j2) : nominalIuranWarga(w2), status: "lunas", tanggalBayar: todayStr() });
+                  masuk++;
+                }
+                logAudit("Impor CSV iuran: " + masuk + " catatan masuk, " + lewati + " baris dilewati.");
+                ui.rtDone = "Impor iuran selesai: " + masuk + " catatan lunas ditambahkan, " + lewati + " baris dilewati (nama tak ditemukan / bulan tidak valid / sudah lunas).";
+              }
+              ui.rtError = "";
+            } catch (e2) {
+              ui.rtError = "Gagal membaca CSV — periksa formatnya (nama,alamat,noHp atau nama,bulan,jumlah).";
+              ui.rtDone = "";
+            }
+            render();
+          };
+          cr.readAsText(cf0);
+          return;
+        }
         if (el.getAttribute && el.getAttribute("data-file") === "backup") {
           if (!isSuper()) { ui.backupMsg = "Gagal: impor cadangan hanya untuk Super Admin."; render(); return; }
           var file = el.files && el.files[0];
@@ -2063,7 +2961,15 @@
                 namaRt: String(data.settings.namaRt || "RT Kami"),
                 wilayah: String(data.settings.wilayah || ""),
                 nominalBaku: Math.max(100, Number(data.settings.nominalBaku) || 500),
-                nominalIuran: Math.max(0, Number(data.settings.nominalIuran) || 20000)
+                nominalIuran: Math.max(0, Number(data.settings.nominalIuran) || 20000),
+                /* Cadangan lama (v1–v3) belum punya saldo awal / daftar RT / pengurus — diisi bawaan kosong. */
+                saldoAwal: {
+                  utama: Number((data.settings.saldoAwal || {}).utama) || 0,
+                  proyek: Number((data.settings.saldoAwal || {}).proyek) || 0,
+                  kematian: Number((data.settings.saldoAwal || {}).kematian) || 0
+                },
+                rtList: Array.isArray(data.settings.rtList) ? data.settings.rtList : [],
+                pengurus: Array.isArray(data.settings.pengurus) ? data.settings.pengurus : []
               };
               if (data.pins) {
                 ["petugas", "bendahara", "superadmin"].forEach(function (k) {
@@ -2071,14 +2977,14 @@
                 });
               }
               state.houses = data.houses; state.collections = data.collections; state.expenses = data.expenses;
-              /* Cadangan lama (v1) belum punya modul RT/RW — kolom yang tidak ada diisi kosong. */
-              ["warga", "iuran", "aset", "surat", "pinjam", "aduan", "agenda", "umum", "umkm", "audit"].forEach(function (k) {
+              /* Cadangan lama (v1) belum punya modul RT/RW, cadangan v3 belum punya profil/broadcast/bayar — kolom yang tidak ada diisi kosong. */
+              ["warga", "iuran", "aset", "surat", "pinjam", "aduan", "agenda", "umum", "umkm", "audit", "profil", "broadcast", "bayar"].forEach(function (k) {
                 state[k] = Array.isArray(data[k]) ? data[k] : [];
               });
               state.seq = Number(data.seq) || (state.houses.length + state.collections.length + state.expenses.length + 1);
               ui.backupMsg = "Cadangan berhasil diimpor: " + state.houses.length + " rumah, " +
                 state.collections.length + " catatan setoran, " + state.expenses.length + " pengeluaran, " +
-                state.warga.length + " warga/KK.";
+                state.warga.length + " warga/KK, " + state.profil.length + " profil warga.";
               ui.error = "";
             } catch (e) {
               ui.backupMsg = "Gagal mengimpor: file bukan cadangan jimpitan yang valid.";
@@ -2176,12 +3082,15 @@
             if (eh) {
               eh.nomor = ui.fNomor.trim(); eh.namaPenghuni = ui.fPenghuni.trim();
               eh.blok = ui.fBlok.trim(); eh.status = ui.fStatus; eh.catatan = ui.fCatatan.trim();
+              eh.rt = ui.fRt || "";
+              logAudit("Data rumah diubah: Rumah " + eh.nomor + " (" + eh.namaPenghuni + ").");
             }
           } else {
             state.houses.push({
               id: nextId(), nomor: ui.fNomor.trim(), namaPenghuni: ui.fPenghuni.trim(),
-              blok: ui.fBlok.trim(), status: ui.fStatus, catatan: ui.fCatatan.trim()
+              blok: ui.fBlok.trim(), status: ui.fStatus, catatan: ui.fCatatan.trim(), rt: ui.fRt || ""
             });
+            logAudit("Data rumah ditambah: Rumah " + ui.fNomor.trim() + " (" + ui.fPenghuni.trim() + ").");
           }
           resetHouseForm(); ui.error = "";
           render();
@@ -2198,7 +3107,16 @@
           state.settings.wilayah = (ui.sWilayah != null ? ui.sWilayah : state.settings.wilayah).trim();
           state.settings.nominalBaku = Math.round(n);
           state.settings.nominalIuran = Math.round(ni);
+          var saOld = state.settings.saldoAwal || { utama: 0, proyek: 0, kematian: 0 };
+          function saldoVal(v, old) { var x = Number(v); return v == null || v === "" || !isFinite(x) ? (Number(old) || 0) : Math.round(x); }
+          state.settings.saldoAwal = {
+            utama: saldoVal(ui.sSaldoUtama, saOld.utama),
+            proyek: saldoVal(ui.sSaldoProyek, saOld.proyek),
+            kematian: saldoVal(ui.sSaldoKematian, saOld.kematian)
+          };
+          logAudit("Pengaturan RT disimpan (termasuk saldo awal per kas).");
           ui.sNama = null; ui.sWilayah = null; ui.sNominal = null; ui.sIuran = null;
+          ui.sSaldoUtama = null; ui.sSaldoProyek = null; ui.sSaldoKematian = null;
           ui.sError = ""; ui.sDone = true;
           render();
         }
@@ -2211,8 +3129,10 @@
           state.expenses.push({
             id: nextId(), tanggal: ui.eTgl || todayStr(), keperluan: ui.eKeperluan.trim(),
             jumlah: Math.round(j), dicatatOleh: state.nama.trim(),
-            keterangan: ui.eKet.trim(), status: "aktif", alasanBatal: ""
+            keterangan: ui.eKet.trim(), status: "aktif", alasanBatal: "", kas: ui.eKas || "utama"
           });
+          logAudit("Pengeluaran dicatat: " + ui.eKeperluan.trim() + " " + rp(Math.round(j)) + " dari " +
+            (ui.eKas === "proyek" ? "Kas Proyek/Kegiatan" : ui.eKas === "kematian" ? "Kas Kematian" : "Kas Utama") + ".");
           ui.eKeperluan = ""; ui.eJumlah = ""; ui.eKet = ""; ui.eError = ""; ui.error = "";
           render();
         }
@@ -2220,20 +3140,175 @@
           if (!canKelola()) { ui.rtError = "Data warga hanya dikelola Bendahara dan Super Admin."; ui.rtDone = ""; render(); return; }
           if (!ui.wNama.trim()) { ui.rtError = "Nama kepala keluarga wajib diisi."; ui.rtDone = ""; render(); return; }
           if (!ui.wAlamat.trim()) { ui.rtError = "Alamat / nomor rumah wajib diisi."; ui.rtDone = ""; render(); return; }
-          state.warga.push({ id: nextId(), nama: ui.wNama.trim(), alamat: ui.wAlamat.trim(), noHp: ui.wHp.trim(), status: "aktif" });
-          logAudit("Data warga/KK ditambah: " + ui.wNama.trim() + " (" + ui.wAlamat.trim() + ").");
-          ui.wNama = ""; ui.wAlamat = ""; ui.wHp = "";
-          ui.rtError = ""; ui.rtDone = "Data warga tersimpan."; render();
+          if (ui.wEdit) {
+            var ew = wargaById(ui.wEdit);
+            if (ew) {
+              ew.nama = ui.wNama.trim(); ew.alamat = ui.wAlamat.trim(); ew.noHp = ui.wHp.trim();
+              ew.status = ui.wStatus || "aktif"; ew.rt = ui.wRt || "";
+              logAudit("Data warga/KK diubah: " + ew.nama + " (status " + ew.status + ").");
+            }
+            ui.wEdit = null;
+            ui.rtDone = "Data warga diperbarui.";
+          } else {
+            state.warga.push({ id: nextId(), nama: ui.wNama.trim(), alamat: ui.wAlamat.trim(), noHp: ui.wHp.trim(), status: ui.wStatus || "aktif", rt: ui.wRt || "" });
+            logAudit("Data warga/KK ditambah: " + ui.wNama.trim() + " (" + ui.wAlamat.trim() + ").");
+            ui.rtDone = "Data warga tersimpan.";
+          }
+          ui.wNama = ""; ui.wAlamat = ""; ui.wHp = ""; ui.wStatus = "aktif"; ui.wRt = "";
+          ui.rtError = ""; render();
+        }
+        else if (kind === "rt-profil") {
+          if (!canKelola()) { ui.rtError = "Profil Warga hanya dikelola Bendahara dan Super Admin."; ui.rtDone = ""; render(); return; }
+          if (!ui.pfNama.trim()) { ui.rtError = "Nama warga wajib diisi."; ui.rtDone = ""; render(); return; }
+          var nik = ui.pfNik.trim();
+          if (nik) {
+            var dupNik = state.profil.some(function (p) { return p.nik === nik && p.id !== ui.pfEdit; });
+            if (dupNik) { ui.rtError = "NIK " + nik + " sudah terdaftar atas nama warga lain — NIK harus unik, periksa kembali."; ui.rtDone = ""; render(); return; }
+          }
+          if ((ui.pfStatus === "pindah" || ui.pfStatus === "meninggal") && !ui.pfAlasan.trim()) {
+            ui.rtError = "Alasan wajib diisi bila status Pindah atau Meninggal."; ui.rtDone = ""; render(); return;
+          }
+          var olehNama = state.nama.trim() || ROLE_LABEL[state.role];
+          if (ui.pfEdit) {
+            var ep = profilById(ui.pfEdit);
+            if (ep) {
+              var statusLama = ep.statusTinggal || "aktif";
+              ep.houseId = ui.pfHouse ? Number(ui.pfHouse) : null;
+              ep.noKK = ui.pfKK.trim(); ep.nik = nik; ep.nama = ui.pfNama.trim();
+              ep.hubungan = ui.pfHub; ep.pekerjaan = ui.pfPekerjaan.trim();
+              ep.pendidikan = ui.pfPendidikan; ep.golonganDarah = ui.pfDarah;
+              ep.tanggalLahir = ui.pfLahir; ep.agama = ui.pfAgama; ep.statusKawin = ui.pfKawin;
+              ep.noHp = ui.pfHp.trim(); ep.statusTinggal = ui.pfStatus;
+              if (statusLama !== ui.pfStatus) {
+                ep.riwayat = ep.riwayat || [];
+                ep.riwayat.push({ status: ui.pfStatus === "aktif" ? "Aktif kembali" : ui.pfStatus === "pindah" ? "Pindah" : "Meninggal", tanggal: todayStr(), alasan: ui.pfAlasan.trim(), oleh: olehNama });
+              }
+              logAudit("Profil warga diubah: " + ep.nama + (statusLama !== ui.pfStatus ? " — status " + statusLama + " → " + ui.pfStatus + (ui.pfAlasan.trim() ? " (" + ui.pfAlasan.trim() + ")" : "") : "") + ".");
+            }
+            ui.rtDone = "Profil warga diperbarui.";
+          } else {
+            var np = {
+              id: nextId(), houseId: ui.pfHouse ? Number(ui.pfHouse) : null,
+              noKK: ui.pfKK.trim(), nik: nik, nama: ui.pfNama.trim(), hubungan: ui.pfHub,
+              pekerjaan: ui.pfPekerjaan.trim(), pendidikan: ui.pfPendidikan, golonganDarah: ui.pfDarah,
+              tanggalLahir: ui.pfLahir, agama: ui.pfAgama, statusKawin: ui.pfKawin,
+              noHp: ui.pfHp.trim(), statusTinggal: ui.pfStatus, riwayat: []
+            };
+            if (ui.pfStatus !== "aktif") {
+              np.riwayat.push({ status: ui.pfStatus === "pindah" ? "Pindah" : "Meninggal", tanggal: todayStr(), alasan: ui.pfAlasan.trim(), oleh: olehNama });
+            }
+            state.profil.push(np);
+            logAudit("Profil warga ditambah: " + np.nama + " (" + np.hubungan + ", KK " + (np.noKK || "-") + ").");
+            ui.rtDone = "Profil warga tersimpan.";
+          }
+          resetProfilForm();
+          ui.rtError = ""; render();
+        }
+        else if (kind === "rt-batal") {
+          if (!canKelola()) return;
+          if (!ui.batalReason.trim()) { ui.rtError = "Alasan pembatalan wajib diisi."; ui.rtDone = ""; render(); return; }
+          var koleksi = { aset: state.aset, agenda: state.agenda, umum: state.umum, umkm: state.umkm }[ui.batalJenis];
+          var labelB = { aset: "Aset", agenda: "Agenda", umum: "Pengumuman", umkm: "UMKM" }[ui.batalJenis];
+          if (koleksi) {
+            koleksi.forEach(function (x) {
+              if (x.id === ui.batalId) {
+                x.status = "batal"; x.alasanBatal = ui.batalReason.trim();
+                logAudit(labelB + " dibatalkan: " + (x.nama || x.judul || x.namaUsaha || x.id) + " — alasan: " + ui.batalReason.trim() + ".");
+              }
+            });
+          }
+          ui.batalJenis = ""; ui.batalId = null; ui.batalReason = "";
+          ui.rtError = ""; ui.rtDone = labelB + " dibatalkan dengan alasan tercatat — tidak dihapus permanen."; render();
+        }
+        else if (kind === "house-arsip") {
+          if (!canKelola()) return;
+          if (!ui.houseArsipReason.trim()) { ui.error = "Alasan mengarsipkan rumah wajib diisi."; render(); return; }
+          var ha = houseById(Number(form.getAttribute("data-id")));
+          if (ha) {
+            ha.status = "nonaktif";
+            ha.catatan = ((ha.catatan ? ha.catatan + " · " : "") + "Diarsipkan: " + ui.houseArsipReason.trim());
+            logAudit("Data rumah diarsipkan: Rumah " + ha.nomor + " (" + ha.namaPenghuni + ") — alasan: " + ui.houseArsipReason.trim() + ".");
+          }
+          ui.houseArsipFor = null; ui.houseArsipReason = ""; ui.error = "";
+          render();
+        }
+        else if (kind === "my-login") {
+          var namaIn = ui.myNama.trim().toLowerCase(), hpIn = waNum(ui.myHp);
+          var found = null;
+          state.warga.forEach(function (w) {
+            if (found) return;
+            var namaCocok = w.nama.toLowerCase() === namaIn;
+            var hpCocok = !w.noHp || waNum(w.noHp) === hpIn;
+            if (namaIn && namaCocok && hpCocok) found = w;
+          });
+          if (!found) {
+            ui.myErr = "Data tidak ditemukan. Pastikan nama kepala keluarga dan nomor HP sama persis dengan catatan pengurus — atau minta pengurus memeriksa data Warga & KK Anda.";
+            ui.myMsg = ""; render(); return;
+          }
+          ui.myWargaId = found.id; ui.myErr = ""; ui.myMsg = "";
+          render();
+        }
+        else if (kind === "my-pay") {
+          var me2 = wargaById(ui.myWargaId);
+          if (!me2 || !ui.myBulan) { ui.myErr = "Sesi warga tidak ditemukan — masuk lagi."; render(); return; }
+          var jml = Number(ui.myJumlah);
+          if (!isFinite(jml) || jml < 1) { ui.myErr = "Jumlah transfer harus angka lebih dari 0."; render(); return; }
+          if (!ui.myBuktiNama) { ui.myErr = "Lampirkan dulu bukti transfernya (pilih berkas foto/struk)."; render(); return; }
+          state.bayar.push({
+            id: nextId(), wargaId: me2.id, bulan: ui.myBulan, jumlah: Math.round(jml),
+            buktiNama: ui.myBuktiNama, keterangan: ui.myKet.trim(), tanggal: todayStr(), status: "menunggu"
+          });
+          logAudit("Pembayaran iuran mandiri masuk: " + me2.nama + ", " + fmtBulan(ui.myBulan) + ", " + rp(Math.round(jml)) + " — menunggu verifikasi bendahara.");
+          ui.myMsg = "Bukti terkirim untuk iuran " + fmtBulan(ui.myBulan) + " — status Menunggu verifikasi bendahara.";
+          ui.myErr = ""; ui.myBulan = ""; ui.myBuktiNama = ""; ui.myKet = "";
+          render();
+        }
+        else if (kind === "rt-add") {
+          if (!isSuper()) { ui.sError = "Daftar RT hanya dikelola Super Admin."; render(); return; }
+          var rtn2 = ui.rtNamaBaru.trim();
+          var rtj = Number(ui.rtJimpBaru), rti = Number(ui.rtIuranBaru);
+          if (!rtn2) { ui.sError = "Nama RT wajib diisi."; ui.sDone = false; render(); return; }
+          if (rtEntry(rtn2)) { ui.sError = "RT " + rtn2 + " sudah ada di daftar."; ui.sDone = false; render(); return; }
+          if (!isFinite(rtj) || rtj < 100) { ui.sError = "Nominal jimpitan RT minimal Rp100."; ui.sDone = false; render(); return; }
+          if (!isFinite(rti) || rti < 0) { ui.sError = "Nominal iuran RT tidak valid."; ui.sDone = false; render(); return; }
+          state.settings.rtList = state.settings.rtList || [];
+          state.settings.rtList.push({ nama: rtn2, nominalJimpitan: Math.round(rtj), nominalIuran: Math.round(rti) });
+          logAudit("RT ditambahkan ke daftar RW: " + rtn2 + " (jimpitan " + rp(Math.round(rtj)) + ", iuran " + rp(Math.round(rti)) + ").");
+          ui.rtNamaBaru = ""; ui.rtJimpBaru = ""; ui.rtIuranBaru = "";
+          ui.sError = ""; ui.sDone = true;
+          render();
+        }
+        else if (kind === "pengurus-add") {
+          if (!isSuper()) { ui.sError = "Daftar pengurus hanya dikelola Super Admin."; render(); return; }
+          if (!ui.pgNama.trim()) { ui.sError = "Nama pengurus wajib diisi."; ui.sDone = false; render(); return; }
+          if (!ui.pgJabatan.trim()) { ui.sError = "Jabatan pengurus wajib diisi."; ui.sDone = false; render(); return; }
+          state.settings.pengurus = state.settings.pengurus || [];
+          state.settings.pengurus.push({ nama: ui.pgNama.trim(), jabatan: ui.pgJabatan.trim(), noHp: ui.pgHp.trim(), foto: ui.pgFoto || "" });
+          logAudit("Pengurus halaman depan ditambah: " + ui.pgNama.trim() + " (" + ui.pgJabatan.trim() + ").");
+          ui.pgNama = ""; ui.pgJabatan = ""; ui.pgHp = ""; ui.pgFoto = "";
+          ui.sError = ""; ui.sDone = true;
+          render();
         }
         else if (kind === "rt-aset") {
           if (!canKelola()) { ui.rtError = "Aset hanya dikelola Bendahara dan Super Admin."; ui.rtDone = ""; render(); return; }
           var aj = Number(ui.aJumlah);
           if (!ui.aNama.trim()) { ui.rtError = "Nama aset wajib diisi."; ui.rtDone = ""; render(); return; }
           if (!isFinite(aj) || aj < 1) { ui.rtError = "Jumlah aset minimal 1."; ui.rtDone = ""; render(); return; }
-          state.aset.push({ id: nextId(), nama: ui.aNama.trim(), jumlah: Math.round(aj), kondisi: ui.aKondisi.trim() || "Baik", lokasi: ui.aLokasi.trim() });
-          logAudit("Aset ditambah: " + ui.aNama.trim() + " ×" + Math.round(aj) + ".");
+          if (ui.aEdit) {
+            var ea = asetById(ui.aEdit);
+            if (ea) {
+              ea.nama = ui.aNama.trim(); ea.jumlah = Math.round(aj);
+              ea.kondisi = ui.aKondisi.trim() || "Baik"; ea.lokasi = ui.aLokasi.trim();
+              logAudit("Aset diubah: " + ea.nama + " ×" + ea.jumlah + " (" + ea.kondisi + ").");
+            }
+            ui.aEdit = null; ui.rtDone = "Aset diperbarui.";
+          } else {
+            state.aset.push({ id: nextId(), nama: ui.aNama.trim(), jumlah: Math.round(aj), kondisi: ui.aKondisi.trim() || "Baik", lokasi: ui.aLokasi.trim(), status: "aktif", alasanBatal: "" });
+            logAudit("Aset ditambah: " + ui.aNama.trim() + " ×" + Math.round(aj) + ".");
+            ui.rtDone = "Aset tersimpan.";
+          }
           ui.aNama = ""; ui.aJumlah = "1"; ui.aLokasi = "";
-          ui.rtError = ""; ui.rtDone = "Aset tersimpan."; render();
+          ui.rtError = ""; render();
         }
         else if (kind === "rt-surat") {
           if (!ui.suNama.trim()) { ui.rtError = "Nama pemohon wajib diisi."; ui.rtDone = ""; render(); return; }
@@ -2263,27 +3338,62 @@
         else if (kind === "rt-agenda") {
           if (!canKelola()) { ui.rtError = "Agenda hanya dikelola Bendahara dan Super Admin."; ui.rtDone = ""; render(); return; }
           if (!ui.agJudul.trim()) { ui.rtError = "Judul kegiatan wajib diisi."; ui.rtDone = ""; render(); return; }
-          state.agenda.push({ id: nextId(), judul: ui.agJudul.trim(), tanggal: ui.agTgl || todayStr(), lokasi: ui.agLokasi.trim(), keterangan: ui.agKet.trim() });
-          logAudit("Agenda ditambah: " + ui.agJudul.trim() + " (" + (ui.agTgl || todayStr()) + ").");
+          if (ui.agEdit) {
+            state.agenda.forEach(function (x) {
+              if (x.id === ui.agEdit) {
+                x.judul = ui.agJudul.trim(); x.tanggal = ui.agTgl || todayStr();
+                x.lokasi = ui.agLokasi.trim(); x.keterangan = ui.agKet.trim();
+                logAudit("Agenda diubah: " + x.judul + " (" + x.tanggal + ").");
+              }
+            });
+            ui.agEdit = null; ui.rtDone = "Agenda diperbarui.";
+          } else {
+            state.agenda.push({ id: nextId(), judul: ui.agJudul.trim(), tanggal: ui.agTgl || todayStr(), lokasi: ui.agLokasi.trim(), keterangan: ui.agKet.trim(), status: "aktif", alasanBatal: "" });
+            logAudit("Agenda ditambah: " + ui.agJudul.trim() + " (" + (ui.agTgl || todayStr()) + ").");
+            ui.rtDone = "Agenda tersimpan.";
+          }
           ui.agJudul = ""; ui.agLokasi = ""; ui.agKet = "";
-          ui.rtError = ""; ui.rtDone = "Agenda tersimpan."; render();
+          ui.rtError = ""; render();
         }
         else if (kind === "rt-umum") {
           if (!canKelola()) { ui.rtError = "Pengumuman hanya diterbitkan Bendahara dan Super Admin."; ui.rtDone = ""; render(); return; }
           if (!ui.umJudul.trim()) { ui.rtError = "Judul pengumuman wajib diisi."; ui.rtDone = ""; render(); return; }
-          state.umum.push({ id: nextId(), judul: ui.umJudul.trim(), isi: ui.umIsi.trim(), tanggal: todayStr() });
-          logAudit("Pengumuman diterbitkan: " + ui.umJudul.trim() + ".");
+          if (ui.umEdit) {
+            state.umum.forEach(function (x) {
+              if (x.id === ui.umEdit) {
+                x.judul = ui.umJudul.trim(); x.isi = ui.umIsi.trim();
+                logAudit("Pengumuman diubah: " + x.judul + ".");
+              }
+            });
+            ui.umEdit = null; ui.rtDone = "Pengumuman diperbarui.";
+          } else {
+            state.umum.push({ id: nextId(), judul: ui.umJudul.trim(), isi: ui.umIsi.trim(), tanggal: todayStr(), status: "aktif", alasanBatal: "" });
+            logAudit("Pengumuman diterbitkan: " + ui.umJudul.trim() + ".");
+            ui.rtDone = "Pengumuman diterbitkan — juga tampil di Beranda.";
+          }
           ui.umJudul = ""; ui.umIsi = "";
-          ui.rtError = ""; ui.rtDone = "Pengumuman diterbitkan — juga tampil di Beranda."; render();
+          ui.rtError = ""; render();
         }
         else if (kind === "rt-umkm") {
           if (!canKelola()) { ui.rtError = "UMKM hanya dikelola Bendahara dan Super Admin."; ui.rtDone = ""; render(); return; }
           if (!ui.ukNama.trim()) { ui.rtError = "Nama usaha wajib diisi."; ui.rtDone = ""; render(); return; }
           if (!ui.ukPemilik.trim()) { ui.rtError = "Nama pemilik wajib diisi."; ui.rtDone = ""; render(); return; }
-          state.umkm.push({ id: nextId(), namaUsaha: ui.ukNama.trim(), pemilik: ui.ukPemilik.trim(), kategori: ui.ukKategori.trim(), kontak: ui.ukKontak.trim(), deskripsi: ui.ukDesk.trim() });
-          logAudit("UMKM ditambah: " + ui.ukNama.trim() + " (" + ui.ukPemilik.trim() + ").");
+          if (ui.ukEdit) {
+            state.umkm.forEach(function (x) {
+              if (x.id === ui.ukEdit) {
+                x.namaUsaha = ui.ukNama.trim(); x.pemilik = ui.ukPemilik.trim();
+                x.kategori = ui.ukKategori.trim(); x.kontak = ui.ukKontak.trim(); x.deskripsi = ui.ukDesk.trim();
+                logAudit("UMKM diubah: " + x.namaUsaha + " (" + x.pemilik + ").");
+              }
+            });
+            ui.ukEdit = null; ui.rtDone = "UMKM diperbarui.";
+          } else {
+            state.umkm.push({ id: nextId(), namaUsaha: ui.ukNama.trim(), pemilik: ui.ukPemilik.trim(), kategori: ui.ukKategori.trim(), kontak: ui.ukKontak.trim(), deskripsi: ui.ukDesk.trim(), status: "aktif", alasanBatal: "" });
+            logAudit("UMKM ditambah: " + ui.ukNama.trim() + " (" + ui.ukPemilik.trim() + ").");
+            ui.rtDone = "UMKM tersimpan.";
+          }
           ui.ukNama = ""; ui.ukPemilik = ""; ui.ukKategori = ""; ui.ukKontak = ""; ui.ukDesk = "";
-          ui.rtError = ""; ui.rtDone = "UMKM tersimpan."; render();
+          ui.rtError = ""; render();
         }
         else if (kind === "exp-void") {
           if (!isBendahara()) return;
