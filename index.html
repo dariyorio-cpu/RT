@@ -673,6 +673,53 @@
         .modal-card.login-modal h2.sec { font-size: 1.375rem; }
         .modal-card.login-modal .actions-row .btn { flex: 1 1 100%; }
       }
+      /* ---------- Popup formulir premium (tambah/ubah profil warga) ---------- */
+      .modal-card.form-modal {
+        max-width: 36rem;
+        border: 1px solid rgba(217, 168, 63, 0.5);
+        border-radius: 1.5rem;
+        padding: 0 0 1.5rem;
+        box-shadow: 0 32px 64px rgba(4, 28, 19, 0.35);
+        position: relative;
+        overflow: hidden;
+        margin-top: 1.5rem;
+      }
+      .modal-card.form-modal::before {
+        content: ""; position: absolute; top: 0; left: 0; right: 0; height: 0.3rem;
+        background: linear-gradient(90deg, var(--grad-a), var(--gold-bright) 50%, var(--grad-b));
+        z-index: 1;
+      }
+      .modal-card.form-modal h2.sec {
+        font-size: 1.375rem; font-weight: 800; letter-spacing: -0.015em; margin: 0;
+        text-align: center; padding-top: 1.5rem;
+      }
+      .modal-card.form-modal h2.sec::after {
+        content: ""; display: block; width: 2.5rem; height: 0.2rem; margin: 0.55rem auto 0;
+        border-radius: 999px; background: linear-gradient(90deg, var(--gold), var(--gold-bright));
+      }
+      .modal-card.form-modal .form-body { padding: 1.25rem 1.5rem 0; }
+      .modal-x {
+        position: absolute; top: 0.75rem; right: 0.75rem; z-index: 2;
+        width: 2rem; height: 2rem; border-radius: 50%; border: 1px solid var(--border);
+        background: var(--surface); color: var(--dim); cursor: pointer;
+        display: flex; align-items: center; justify-content: center; padding: 0;
+      }
+      .modal-x:hover { color: var(--text); border-color: var(--gold); }
+      .modal-x svg { width: 1rem; height: 1rem; }
+      .btn-add-round {
+        flex: 0 0 auto; width: 2.75rem; height: 2.75rem; border-radius: 50%; border: none;
+        cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
+        align-self: flex-end;
+        background: linear-gradient(135deg, var(--grad-b), var(--grad-a)); color: #fff;
+        box-shadow: 0 8px 18px rgba(7, 68, 51, 0.3), inset 0 0 0 2px rgba(217, 168, 63, 0.45);
+        transition: transform 0.15s ease, box-shadow 0.15s ease;
+      }
+      .btn-add-round:hover { transform: translateY(-2px); box-shadow: 0 12px 24px rgba(7, 68, 51, 0.35), inset 0 0 0 2px rgba(217, 168, 63, 0.6); }
+      .btn-add-round svg { width: 1.375rem; height: 1.375rem; }
+      @media (max-width: 640px) {
+        .modal-card.form-modal { margin-top: 0.75rem; border-radius: 1.25rem; }
+        .modal-card.form-modal .form-body { padding: 1rem 1rem 0; }
+      }
       .access-table { width: 100%; border-collapse: collapse; font-size: 0.8125rem; }
       .access-table th, .access-table td { border: 1px solid var(--border); padding: 0.45rem 0.5rem; text-align: left; vertical-align: top; }
       .access-table th { background: var(--surface2); font-weight: 700; }
@@ -885,7 +932,7 @@
         cariWarga: "", cariWargaRun: false,
         pfEdit: null, pfHouse: "", pfKK: "", pfNik: "", pfNama: "", pfHub: "Kepala Keluarga",
         pfPekerjaan: "", pfPendidikan: "", pfDarah: "", pfLahir: "", pfAgama: "", pfKawin: "",
-        pfHp: "", pfStatus: "aktif", pfAlasan: "", pfCari: "", pfFilter: "semua",
+        pfHp: "", pfStatus: "aktif", pfAlasan: "", pfCari: "", pfFilter: "semua", pfModal: false,
         wEdit: null, wStatus: "aktif", wRt: "",
         aEdit: null, agEdit: null, umEdit: null, ukEdit: null,
         batalJenis: "", batalId: null, batalReason: "",
@@ -1860,6 +1907,7 @@
         else if (state.tab === "profil") html += viewProfil();
         html += "</div></div></div></main>";
         if (ui.loginOpen) html += viewLogin();
+        if (ui.pfModal) html += viewProfilModal();
         if (ui.cloudConfirm) html += viewCloudConfirm();
         /* Nav bawah HP tidak memuat Profil (dibuka lewat sidebar / chip
            header) supaya tetap 7 entri yang lega. */
@@ -2864,6 +2912,56 @@
           '<input id="' + id + '" type="' + (type || "text") + '" class="inp" value="' + esc(val) +
           '" placeholder="' + esc(ph || "") + '" data-bind="' + bind + '"></div>';
       }
+      function selOpts(list, cur) {
+        return list.map(function (o) {
+          return '<option value="' + esc(o) + '"' + (cur === o ? " selected" : "") + ">" + esc(o) + "</option>";
+        }).join("");
+      }
+      /* Popup premium tambah/ubah Profil Warga — formulir yang sama seperti
+         form inline sebelumnya, dipindah ke modal. Klik backdrop TIDAK menutup
+         (konsisten dengan modal login) supaya isian tidak hilang tak sengaja. */
+      function viewProfilModal() {
+        return '<div class="modal-overlay"><form class="modal-card form-modal" data-form="rt-profil">' +
+          '<button type="button" class="modal-x" data-act="pf-modal-close" title="Tutup" aria-label="Tutup">' +
+          '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>' +
+          '<h2 class="sec">' + (ui.pfEdit ? "Ubah Profil Warga" : "Tambah Profil Warga") + '</h2>' +
+          '<div class="form-body">' +
+          (ui.rtError ? '<p class="err">' + esc(ui.rtError) + "</p>" : "") +
+          '<p class="sub" style="margin-bottom:.75rem">Registry warga per jiwa untuk demografi, broadcast WA, dan administrasi. Jimpitan tetap dihitung <b>per rumah</b> — profil ini tidak mengubah kewajiban jimpitan rumah mana pun.</p><div class="grid2">' +
+          '<div><label class="lbl" for="pf-house">Rumah tempat tinggal</label>' +
+          '<select id="pf-house" class="inp" data-bind-sel="pfHouse"><option value="">— pilih rumah —</option>' +
+          sortedHouses().map(function (h) {
+            return '<option value="' + h.id + '"' + (String(ui.pfHouse) === String(h.id) ? " selected" : "") + ">Rumah " + esc(h.nomor) + " · " + esc(h.namaPenghuni) + (h.blok ? " · Blok " + esc(h.blok) : "") + "</option>";
+          }).join("") + "</select></div>" +
+          fld("pf-nama", "Nama lengkap", "pfNama", ui.pfNama, "Sesuai KTP") +
+          fld("pf-kk", "No. KK", "pfKK", ui.pfKK, "16 digit No. KK") +
+          fld("pf-nik", "NIK (unik — tidak boleh ganda)", "pfNik", ui.pfNik, "16 digit NIK") +
+          '<div><label class="lbl" for="pf-hub">Hubungan dalam keluarga</label>' +
+          '<select id="pf-hub" class="inp" data-bind-sel="pfHub">' + selOpts(["Kepala Keluarga", "Suami", "Istri", "Anak", "Orang Tua", "Menantu", "Famili Lain"], ui.pfHub) + "</select></div>" +
+          fld("pf-pekerjaan", "Pekerjaan", "pfPekerjaan", ui.pfPekerjaan, "mis. Guru, Wiraswasta, Pelajar") +
+          '<div><label class="lbl" for="pf-pendidikan">Pendidikan terakhir</label>' +
+          '<select id="pf-pendidikan" class="inp" data-bind-sel="pfPendidikan"><option value="">— pilih —</option>' + selOpts(["Tidak/Belum Sekolah", "SD", "SMP", "SMA/SMK", "Diploma", "S1", "S2", "S3"], ui.pfPendidikan) + "</select></div>" +
+          '<div><label class="lbl" for="pf-darah">Golongan darah</label>' +
+          '<select id="pf-darah" class="inp" data-bind-sel="pfDarah"><option value="">— pilih —</option>' + selOpts(["A", "B", "AB", "O"], ui.pfDarah) + "</select></div>" +
+          fld("pf-lahir", "Tanggal lahir", "pfLahir", ui.pfLahir, "", "date") +
+          '<div><label class="lbl" for="pf-agama">Agama</label>' +
+          '<select id="pf-agama" class="inp" data-bind-sel="pfAgama"><option value="">— pilih —</option>' + selOpts(["Islam", "Kristen", "Katolik", "Hindu", "Buddha", "Konghucu", "Lainnya"], ui.pfAgama) + "</select></div>" +
+          '<div><label class="lbl" for="pf-kawin">Status perkawinan</label>' +
+          '<select id="pf-kawin" class="inp" data-bind-sel="pfKawin"><option value="">— pilih —</option>' + selOpts(["Belum Kawin", "Kawin", "Cerai Hidup", "Cerai Mati"], ui.pfKawin) + "</select></div>" +
+          fld("pf-hp", "No. HP / WhatsApp (boleh kosong)", "pfHp", ui.pfHp, "08…") +
+          '<div><label class="lbl" for="pf-status">Status tinggal</label>' +
+          '<select id="pf-status" class="inp" data-bind-sel="pfStatus">' +
+          '<option value="aktif"' + (ui.pfStatus === "aktif" ? " selected" : "") + ">Aktif — tinggal di sini</option>" +
+          '<option value="pindah"' + (ui.pfStatus === "pindah" ? " selected" : "") + ">Pindah — tidak tinggal di sini lagi</option>" +
+          '<option value="meninggal"' + (ui.pfStatus === "meninggal" ? " selected" : "") + ">Meninggal dunia</option>" +
+          "</select></div>" +
+          fld("pf-alasan", "Alasan pindah / keterangan meninggal", "pfAlasan", ui.pfAlasan, "Wajib diisi bila status Pindah/Meninggal") +
+          "</div>" +
+          '<div class="actions-row"><button type="submit" class="btn btn-primary">' + (ui.pfEdit ? "Simpan perubahan" : "Simpan profil warga") + "</button>" +
+          '<button type="button" class="btn btn-ghost" data-act="pf-modal-close">Batal</button></div>' +
+          '<p class="hint">Perubahan status menjadi Pindah/Meninggal tercatat di riwayat warga beserta alasan dan tanggalnya — warga nonaktif tidak tercampur dengan warga aktif di demografi &amp; broadcast.</p>' +
+          "</div></form></div>";
+      }
 
       function batalFormHtml(label) {
         return '<form class="inline-form" data-form="rt-batal">' +
@@ -2902,51 +3000,10 @@
 
         /* ---- Profil Warga (registry per jiwa, terpisah dari data Rumah) ---- */
         if (ui.rtSec === "profil") {
-          var selOpts = function (list, cur) {
-            return list.map(function (o) {
-              return '<option value="' + esc(o) + '"' + (cur === o ? " selected" : "") + ">" + esc(o) + "</option>";
-            }).join("");
-          };
-          if (manage) {
-            html += '<form class="card" data-form="rt-profil"><p style="margin:0 0 .75rem;font-weight:700">' +
-              (ui.pfEdit ? "Ubah profil warga" : "Tambah profil warga") + '</p>' +
-              '<p class="sub" style="margin-bottom:.75rem">Registry warga per jiwa untuk demografi, broadcast WA, dan administrasi. Jimpitan tetap dihitung <b>per rumah</b> — profil ini tidak mengubah kewajiban jimpitan rumah mana pun.</p><div class="grid2">' +
-              '<div><label class="lbl" for="pf-house">Rumah tempat tinggal</label>' +
-              '<select id="pf-house" class="inp" data-bind-sel="pfHouse"><option value="">— pilih rumah —</option>' +
-              sortedHouses().map(function (h) {
-                return '<option value="' + h.id + '"' + (String(ui.pfHouse) === String(h.id) ? " selected" : "") + ">Rumah " + esc(h.nomor) + " · " + esc(h.namaPenghuni) + (h.blok ? " · Blok " + esc(h.blok) : "") + "</option>";
-              }).join("") + "</select></div>" +
-              fld("pf-nama", "Nama lengkap", "pfNama", ui.pfNama, "Sesuai KTP") +
-              fld("pf-kk", "No. KK", "pfKK", ui.pfKK, "16 digit No. KK") +
-              fld("pf-nik", "NIK (unik — tidak boleh ganda)", "pfNik", ui.pfNik, "16 digit NIK") +
-              '<div><label class="lbl" for="pf-hub">Hubungan dalam keluarga</label>' +
-              '<select id="pf-hub" class="inp" data-bind-sel="pfHub">' + selOpts(["Kepala Keluarga", "Suami", "Istri", "Anak", "Orang Tua", "Menantu", "Famili Lain"], ui.pfHub) + "</select></div>" +
-              fld("pf-pekerjaan", "Pekerjaan", "pfPekerjaan", ui.pfPekerjaan, "mis. Guru, Wiraswasta, Pelajar") +
-              '<div><label class="lbl" for="pf-pendidikan">Pendidikan terakhir</label>' +
-              '<select id="pf-pendidikan" class="inp" data-bind-sel="pfPendidikan"><option value="">— pilih —</option>' + selOpts(["Tidak/Belum Sekolah", "SD", "SMP", "SMA/SMK", "Diploma", "S1", "S2", "S3"], ui.pfPendidikan) + "</select></div>" +
-              '<div><label class="lbl" for="pf-darah">Golongan darah</label>' +
-              '<select id="pf-darah" class="inp" data-bind-sel="pfDarah"><option value="">— pilih —</option>' + selOpts(["A", "B", "AB", "O"], ui.pfDarah) + "</select></div>" +
-              fld("pf-lahir", "Tanggal lahir", "pfLahir", ui.pfLahir, "", "date") +
-              '<div><label class="lbl" for="pf-agama">Agama</label>' +
-              '<select id="pf-agama" class="inp" data-bind-sel="pfAgama"><option value="">— pilih —</option>' + selOpts(["Islam", "Kristen", "Katolik", "Hindu", "Buddha", "Konghucu", "Lainnya"], ui.pfAgama) + "</select></div>" +
-              '<div><label class="lbl" for="pf-kawin">Status perkawinan</label>' +
-              '<select id="pf-kawin" class="inp" data-bind-sel="pfKawin"><option value="">— pilih —</option>' + selOpts(["Belum Kawin", "Kawin", "Cerai Hidup", "Cerai Mati"], ui.pfKawin) + "</select></div>" +
-              fld("pf-hp", "No. HP / WhatsApp (boleh kosong)", "pfHp", ui.pfHp, "08…") +
-              '<div><label class="lbl" for="pf-status">Status tinggal</label>' +
-              '<select id="pf-status" class="inp" data-bind-sel="pfStatus">' +
-              '<option value="aktif"' + (ui.pfStatus === "aktif" ? " selected" : "") + ">Aktif — tinggal di sini</option>" +
-              '<option value="pindah"' + (ui.pfStatus === "pindah" ? " selected" : "") + ">Pindah — tidak tinggal di sini lagi</option>" +
-              '<option value="meninggal"' + (ui.pfStatus === "meninggal" ? " selected" : "") + ">Meninggal dunia</option>" +
-              "</select></div>" +
-              fld("pf-alasan", "Alasan pindah / keterangan meninggal", "pfAlasan", ui.pfAlasan, "Wajib diisi bila status Pindah/Meninggal") +
-              "</div>" +
-              '<div class="actions-row"><button type="submit" class="btn btn-primary">' + (ui.pfEdit ? "Simpan perubahan" : "Simpan profil warga") + "</button>" +
-              (ui.pfEdit ? '<button type="button" class="btn btn-ghost" data-act="pf-cancel">Batal ubah</button>' : "") + "</div>" +
-              '<p class="hint">Perubahan status menjadi Pindah/Meninggal tercatat di riwayat warga beserta alasan dan tanggalnya — warga nonaktif tidak tercampur dengan warga aktif di demografi &amp; broadcast.</p></form>';
-          }
           html += '<div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:flex-end">' +
             '<div style="flex:1;min-width:12rem"><label class="lbl" for="pf-cari">Cari profil warga</label>' +
-            '<input id="pf-cari" type="search" class="inp" placeholder="Nama, NIK, atau No. KK…" value="' + esc(ui.pfCari) + '" data-bind="pfCari"></div></div>';
+            '<input id="pf-cari" type="search" class="inp" placeholder="Nama, NIK, atau No. KK…" value="' + esc(ui.pfCari) + '" data-bind="pfCari"></div>' +
+            (manage ? '<button type="button" class="btn-add-round" data-act="pf-modal-open" title="Tambah Profil Warga" aria-label="Tambah Profil Warga"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>' : "") + '</div>';
           html += '<div class="subtabs" style="margin-top:.75rem">' +
             [["semua", "Semua"], ["aktif", "Aktif"], ["pindah", "Pindah"], ["meninggal", "Meninggal"]].map(function (f) {
               return '<button type="button" data-act="pf-filter" data-val="' + f[0] + '"' + (ui.pfFilter === f[0] ? ' aria-current="true"' : "") + ">" + f[1] +
@@ -4117,7 +4174,13 @@
           render();
         }
         else if (act === "pf-filter") { ui.pfFilter = t.getAttribute("data-val"); render(); }
-        else if (act === "pf-cancel") { resetProfilForm(); render(); }
+        else if (act === "pf-modal-open") {
+          if (!canKelola()) return;
+          resetProfilForm(); ui.pfModal = true; ui.rtError = ""; ui.rtDone = ""; render();
+          var pfN = document.getElementById("pf-nama"); if (pfN) pfN.focus();
+        }
+        else if (act === "pf-modal-close") { ui.pfModal = false; resetProfilForm(); render(); }
+        else if (act === "pf-cancel") { ui.pfModal = false; resetProfilForm(); render(); }
         else if (act === "pf-edit") {
           if (!canKelola()) return;
           var pf = profilById(Number(t.getAttribute("data-id")));
@@ -4128,7 +4191,8 @@
           ui.pfPendidikan = pf.pendidikan || ""; ui.pfDarah = pf.golonganDarah || "";
           ui.pfLahir = pf.tanggalLahir || ""; ui.pfAgama = pf.agama || ""; ui.pfKawin = pf.statusKawin || "";
           ui.pfHp = pf.noHp || ""; ui.pfStatus = pf.statusTinggal || "aktif"; ui.pfAlasan = "";
-          ui.rtError = ""; ui.rtDone = ""; render(); window.scrollTo(0, 0);
+          ui.rtError = ""; ui.rtDone = ""; ui.pfModal = true; render();
+          var pfN2 = document.getElementById("pf-nama"); if (pfN2) pfN2.focus();
         }
         else if (act === "warga-cancel") { ui.wEdit = null; ui.wNama = ""; ui.wAlamat = ""; ui.wHp = ""; ui.wStatus = "aktif"; ui.wRt = ""; render(); }
         else if (act === "warga-edit") {
@@ -4928,6 +4992,7 @@
             ui.rtDone = "Profil warga tersimpan.";
           }
           resetProfilForm();
+          ui.pfModal = false;
           ui.rtError = ""; render();
         }
         else if (kind === "rt-batal") {
