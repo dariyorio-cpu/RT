@@ -1909,8 +1909,9 @@
             (t.id === "keliling" && pc > 0 ? '<span class="pill-count num">' + pc + "</span>" : "") +
             "</button>";
         });
+        html += "</nav>";
         if (isPengurus()) html += viewTopnav(pc);
-        html += "</nav></div></header>";
+        html += "</div></header>";
         html += '<main><div class="wrap"><div class="layout">';
         html += "<div>";
         if (ui.notifOpen && isPengurus()) {
