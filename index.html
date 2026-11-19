@@ -190,6 +190,11 @@
       }
       .subtabs button:hover { border-color: var(--accent); color: var(--accent-ink); }
       .subtabs button[aria-current="true"] { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+      /* Di layar laptop sidebar sudah memuat entri RT/RW yang sama —
+         bilah subtab NAVIGASI disembunyikan di >=992px. Bilah subtab
+         lain (mis. filter Semua/Aktif/Pindah/Meninggal di Profil
+         Warga) bukan navigasi dan tetap tampil. */
+      @media (min-width: 992px) { .subtabs[role="navigation"] { display: none; } }
       nav.tabs-mobile button {
         position: relative; border: 0; background: transparent;
         display: flex; flex-direction: column; align-items: center; gap: 2px;
@@ -215,6 +220,13 @@
           font-size: 0.6875rem; font-weight: 700; letter-spacing: 0.08em;
           text-transform: uppercase; color: var(--dim); margin: 0.25rem 0.5rem 0.5rem;
         }
+        aside.sidebar .side-group {
+          font-size: 0.6875rem; font-weight: 700; letter-spacing: 0.08em;
+          text-transform: uppercase; color: var(--gold);
+          margin: 0.75rem 0.5rem 0.25rem; padding-top: 0.75rem;
+          border-top: 1px solid var(--border);
+        }
+        aside.sidebar .side-group.first { border-top: 0; padding-top: 0; margin-top: 0.25rem; }
         aside.sidebar button {
           position: relative; display: flex; align-items: center; gap: 0.625rem;
           width: 100%; border: 0; background: transparent; color: var(--text);
@@ -1566,27 +1578,35 @@
         return h ? ("Rumah " + h.nomor + " · " + h.namaPenghuni) : "(rumah terhapus)";
       }
 
-      /* Menu sidebar admin (desktop) — mengikuti tampilan SI-RT/RW Digital V2:
-         entri tingkat atas yang diratakan; tiap entri Modul RT/RW membuka
-         subtab yang sama (bilah subtab di dalam tampilan tetap ada). */
+      /* Menu sidebar admin (desktop) — dikelompokkan menurut fungsi
+         fitur (SIDE_GROUP_LABEL); entri tingkat atas yang diratakan;
+         tiap entri Modul RT/RW membuka subtab yang sama (bilah subtab
+         navigasi di dalam tampilan disembunyikan di layar >=992px
+         lewat CSS karena sidebar sudah memuat entri yang sama). */
+      var SIDE_GROUP_LABEL = {
+        utama: "Utama",
+        warga: "Warga & Iuran",
+        layanan: "Layanan & Informasi",
+        sistem: "Laporan & Sistem"
+      };
       var SIDE = [
-        { tab: "beranda", label: "Dashboard", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg>' },
-        { tab: "keliling", label: "Jimpitan Harian", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>' },
-        { tab: "rumah", label: "Data Rumah", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></svg>' },
-        { tab: "rtrw", sec: "profil", label: "Profil Warga", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>' },
-        { tab: "rtrw", sec: "profil", filter: "pindah", label: "Warga Pindah", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></svg>' },
-        { tab: "rtrw", sec: "profil", filter: "meninggal", label: "Warga Meninggal", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg>' },
-        { tab: "kas", label: "Arus Kas", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/><path d="M6 12h.01M18 12h.01"/></svg>' },
-        { tab: "rtrw", sec: "iuran", label: "Ceklist Iuran", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>' },
-        { tab: "rtrw", sec: "aset", label: "Aset & Inventaris", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>' },
-        { tab: "rtrw", sec: "surat", label: "Layanan Warga", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 13h6M9 17h6"/></svg>' },
-        { tab: "rtrw", sec: "agenda", label: "Agenda & Pengumuman", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>' },
-        { tab: "rtrw", sec: "umkm", label: "Daftar UMKM", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 9l1.5-5h15L21 9"/><path d="M3 9h18v11H3z"/><path d="M9 20v-6h6v6"/></svg>' },
-        { tab: "rtrw", sec: "broadcast", label: "Broadcast WA", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></svg>' },
-        { tab: "laporan", label: "Laporan", sepBefore: true, icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3v18h18"/><path d="M7 15v3M12 10v8M17 6v12"/></svg>' },
-        { tab: "users", label: "Users", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>', superOnly: true },
-        { tab: "pengaturan", label: "Pengaturan", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-3.6 8-10V5l-8-3-8 3v7c0 6.4 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>', superOnly: true },
-        { tab: "profil", label: "Profil Saya", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>' }
+        { tab: "beranda", group: "utama", label: "Dashboard", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg>' },
+        { tab: "keliling", group: "utama", label: "Jimpitan Harian", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>' },
+        { tab: "rumah", group: "utama", label: "Data Rumah", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></svg>' },
+        { tab: "kas", group: "utama", label: "Arus Kas", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/><path d="M6 12h.01M18 12h.01"/></svg>' },
+        { tab: "rtrw", group: "warga", sec: "profil", label: "Profil Warga", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>' },
+        { tab: "rtrw", group: "warga", sec: "profil", filter: "pindah", label: "Warga Pindah", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></svg>' },
+        { tab: "rtrw", group: "warga", sec: "profil", filter: "meninggal", label: "Warga Meninggal", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg>' },
+        { tab: "rtrw", group: "warga", sec: "iuran", label: "Ceklist Iuran", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>' },
+        { tab: "rtrw", group: "layanan", sec: "aset", label: "Aset & Inventaris", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>' },
+        { tab: "rtrw", group: "layanan", sec: "surat", label: "Layanan Warga", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 13h6M9 17h6"/></svg>' },
+        { tab: "rtrw", group: "layanan", sec: "agenda", label: "Agenda & Pengumuman", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>' },
+        { tab: "rtrw", group: "layanan", sec: "umkm", label: "Daftar UMKM", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 9l1.5-5h15L21 9"/><path d="M3 9h18v11H3z"/><path d="M9 20v-6h6v6"/></svg>' },
+        { tab: "rtrw", group: "layanan", sec: "broadcast", label: "Broadcast WA", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></svg>' },
+        { tab: "laporan", group: "sistem", label: "Laporan", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3v18h18"/><path d="M7 15v3M12 10v8M17 6v12"/></svg>' },
+        { tab: "users", group: "sistem", label: "Users", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>', superOnly: true },
+        { tab: "pengaturan", group: "sistem", label: "Pengaturan", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-3.6 8-10V5l-8-3-8 3v7c0 6.4 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>', superOnly: true },
+        { tab: "profil", group: "sistem", label: "Profil Saya", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>' }
       ];
       function sideActive(it) {
         if (it.tab !== state.tab) return false;
@@ -1657,10 +1677,15 @@
         html += '<main><div class="wrap"><div class="layout' + (isPengurus() ? "" : " noside") + '">';
         if (isPengurus()) {
           html += '<aside class="sidebar" aria-label="Menu admin"><p class="side-title">Menu ' + esc(ROLE_LABEL[state.role]) + "</p>";
+          var curGroup = null;
           SIDE.forEach(function (it, i) {
             if (it.superOnly && !isSuper()) return;
             if (!canTab(it.tab)) return;
-            if (it.sepBefore) html += "<hr>";
+            var gLabel = SIDE_GROUP_LABEL[it.group] || "";
+            if (gLabel && gLabel !== curGroup) {
+              html += '<p class="side-group' + (curGroup === null ? " first" : "") + '">' + esc(gLabel) + "</p>";
+              curGroup = gLabel;
+            }
             html += '<button type="button" data-act="side" data-tab="' + it.tab + '"' +
               (it.sec ? ' data-sec="' + it.sec + '"' : "") +
               (it.filter ? ' data-filter="' + it.filter + '"' : "") +
@@ -1910,7 +1935,10 @@
           '<p class="sub" style="margin-top:.75rem">Pemisahan kas — Utama: <b class="num">' + rp(d.perKas.utama) + '</b> · Proyek/Kegiatan: <b class="num">' + rp(d.perKas.proyek) + '</b> · Kematian: <b class="num">' + rp(d.perKas.kematian) + "</b></p>" +
           "</section></div>";
 
-        /* --- Layanan Cepat --- */
+        /* --- Layanan Cepat: HANYA mode Warga/publik. Pengurus sudah
+           punya sidebar dengan entri yang sama, jadi seksi ini dobel
+           bila ditampilkan setelah login. --- */
+        if (state.role === "warga") {
         var layanan = [
           { icon: IC.jimpitan, t: "Jimpitan Harian", d: "Catat & pantau setoran " + rp(s.nominalBaku) + " per rumah per hari", tab: "keliling" },
           { icon: IC.iuran, t: "Ceklist Iuran", d: "Iuran bulanan " + rp(s.nominalIuran || 20000) + " per KK", tab: "rtrw", sec: "iuran" },
@@ -1936,6 +1964,7 @@
             esc(ll.t) + '</span><span class="d">' + esc(ll.d) + "</span></button>";
         });
         html += "</div></section>";
+        }
 
         /* --- Grafik setoran --- */
         var allZero = d.harian.every(function (h) { return h.total === 0; });
