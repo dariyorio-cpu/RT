@@ -822,6 +822,7 @@
       var CLOUD_ENDPOINT = "/api/sync"; /* Vercel Serverless Function (Turso) — same-origin */
       var cloud = { url: CLOUD_ENDPOINT, token: "", deviceId: "", lastSyncAt: null, lastKnownUpdatedAt: null };
       var cloudState = "belum";        /* belum | proses | tersinkron | offline | galat */
+      var cloudGalatUntil = 0;         /* jeda sebelum coba ulang otomatis sesudah galat server */
       var cloudLastDevice = "";        /* deviceId perangkat terakhir yang mengubah data cloud */
       var cloudTimer = null;           /* timer debounce simpan otomatis */
       var cloudSaving = false;
@@ -894,6 +895,9 @@
         if (!cloudTerhubung()) return "Cloud: Belum terhubung";
         if (cloudState === "offline") return "Cloud: Offline";
         if (cloudState === "proses") return "Cloud: Menyinkron…";
+        /* Sinkron terakhir gagal: jangan tampilkan jam "Tersinkron" lama
+           yang menyesatkan — jam itu dari sinkron sukses sebelumnya. */
+        if (cloudState === "galat") return "Cloud: Bermasalah";
         if (cloud.lastSyncAt) return "Cloud: Tersinkron " + fmtJam(cloud.lastSyncAt);
         return "Cloud: Terhubung";
       }
@@ -949,6 +953,7 @@
           cloudBootPending = false;
           if (!res || !res.ok) {
             cloudState = "galat"; ui.cloudErr = cloudErrText(res); ui.cloudMsg = "";
+            cloudGalatUntil = Date.now() + 60000;
             render(); return false;
           }
           if (res.deviceId) cloudLastDevice = String(res.deviceId);
@@ -1020,6 +1025,7 @@
             });
           }
           cloudState = "galat"; ui.cloudErr = cloudErrText(res); ui.cloudMsg = "";
+          cloudGalatUntil = Date.now() + 60000;
           render(); return false;
         }).catch(function () {
           cloudSaving = false;
@@ -1033,6 +1039,12 @@
          yang terakhir tersimpan di cloud. */
       function jadwalkanCloudSave() {
         if (!cloudTerhubung() || cloudSuppressSave || cloudBootPending) return;
+        /* Galat server (mis. SYNC_TOKEN belum dikonfigurasi) tidak akan
+           sembuh dengan coba ulang tiap 3 detik — tiap percobaan gagal
+           me-render ulang halaman dan menghancurkan input yang sedang
+           diketik. Tahan coba ulang otomatis 60 detik; sinkron manual
+           (Hubungkan/Unggah) tetap bisa kapan saja. */
+        if (cloudState === "galat" && Date.now() < cloudGalatUntil) return;
         if (JSON.stringify(cloudPayload()) === cloudLastSentStr) return;
         if (cloudTimer) clearTimeout(cloudTimer);
         cloudTimer = setTimeout(function () { cloudTimer = null; cloudSave(); }, 3000);
@@ -1361,6 +1373,10 @@
         return true;
       }
 
+      /* Fokus input yang sedang diketik, ditangkap render() sebelum DOM
+         diganti dan dipulihkan afterRender() — supaya render di tengah
+         mengetik tidak membuat karakter berikutnya hilang. */
+      var focusKeep = null;
       function render() {
         var s = state.settings;
         var pc = pendingCount();
@@ -1463,23 +1479,46 @@
             "</button>";
         });
         html += "</div></nav>";
+        /* Tangkap fokus sebelum DOM diganti: render() membangun ulang
+           seluruh #app, jadi input yang sedang diketik ikut hancur dan
+           harus dipulihkan afterRender(). */
+        var ae = document.activeElement;
+        focusKeep = null;
+        if (ae && ae.id && (ae.tagName === "INPUT" || ae.tagName === "TEXTAREA")) {
+          var appEl = document.getElementById("app");
+          if (appEl && appEl.contains(ae)) {
+            focusKeep = { id: ae.id, s: null, e: null };
+            try { if (typeof ae.selectionStart === "number") { focusKeep.s = ae.selectionStart; focusKeep.e = ae.selectionEnd; } } catch (errCap) { /* abaikan */ }
+          }
+        }
         document.getElementById("app").innerHTML = html;
         simpanPerangkat();
         afterRender();
       }
       function afterRender() {
-        /* Kembalikan fokus & nilai input yang sedang diketik setelah render ulang. */
-        if (ui.focusId) {
-          var el = document.getElementById(ui.focusId);
+        /* Kembalikan fokus & posisi kursor input yang sedang diketik setelah
+           render ulang — tanpa ini, render yang dipicu sinkron cloud di
+           tengah mengetik membuat karakter berikutnya hilang (input
+           kehilangan fokus). ui.focusId (permintaan eksplisit) didahulukan;
+           bila tidak ada, pakai fokus yang ditangkap render() sebelum DOM
+           diganti, lengkap dengan posisi kursornya. */
+        var fid = ui.focusId || (focusKeep && focusKeep.id);
+        var fsel = ui.focusId ? null : focusKeep;
+        if (fid) {
+          var el = document.getElementById(fid);
           if (el) {
             el.focus();
             if (typeof el.setSelectionRange === "function" && el.value != null) {
               var len = el.value.length;
-              try { el.setSelectionRange(len, len); } catch (e) { /* abaikan */ }
+              try {
+                if (fsel && typeof fsel.s === "number") el.setSelectionRange(Math.min(fsel.s, len), Math.min(fsel.e, len));
+                else el.setSelectionRange(len, len);
+              } catch (e) { /* abaikan */ }
             }
           }
           ui.focusId = null;
         }
+        focusKeep = null;
       }
 
       /* ================= Beranda ================= */
@@ -2789,6 +2828,27 @@
       }
 
       /* ================= Masuk pengurus (gerbang PIN) ================= */
+      /* Akun default untuk modal masuk: akun bawaan peran (nilai "") untuk
+         peran yang punya PIN peran, atau pengguna bernama aktif pertama
+         untuk Admin/Warga. Dipanggil saat peran dipilih/diubah dan saat
+         modal dibuka, supaya pilihan yang tampil di dropdown selalu sama
+         dengan state — tanpa menunggu event change dari dropdown. */
+      function defaultLoginUser(role) {
+        if (["petugas", "bendahara", "superadmin"].indexOf(role) >= 0) return "";
+        var pertama = null;
+        (state.users || []).forEach(function (u) {
+          if (!pertama && u.peran === role && u.aktif !== false) pertama = u;
+        });
+        return pertama ? String(pertama.id) : "";
+      }
+      function pastikanLoginUser() {
+        var cur = null;
+        if (ui.loginUser) {
+          (state.users || []).forEach(function (x) { if (String(x.id) === String(ui.loginUser)) cur = x; });
+        }
+        if (cur && cur.peran === ui.loginRole && cur.aktif !== false) return;
+        ui.loginUser = defaultLoginUser(ui.loginRole);
+      }
       function viewLogin() {
         if (!state.pins.superadmin) {
           return '<div class="modal-overlay"><form class="modal-card" data-form="setup">' +
@@ -2809,6 +2869,9 @@
             '<p class="hint" style="margin-top:.75rem">Setelah PIN dibuat, Anda langsung masuk sebagai Super Admin dan sesi itu tersimpan di perangkat ini: refresh, menutup tab, atau membuka lagi halaman ini tidak meminta PIN dari awal — sesi berakhir hanya bila Anda menekan tombol Keluar. PIN tersimpan hanya di perangkat ini dan ikut ter-ekspor di file cadangan JSON (cadangan versi 5). Pengguna tambahan (Admin, Bendahara, Petugas, atau Warga) bisa ditambah nanti di menu Users oleh Super Admin. Karena versi ini statis tanpa server, perlindungan ini mencegah warga biasa mengubah data dari tautan publik; keamanan penuh antarperangkat membutuhkan versi server.</p>' +
             "</form></div>";
         }
+        /* Jaring pengaman: setiap kali modal masuk dirender, pastikan akun
+           yang terpilih di state cocok dengan yang tampil di dropdown. */
+        pastikanLoginUser();
         var loginUsers = state.users.filter(function (u) { return u.peran === ui.loginRole && u.aktif !== false; });
         var loginBuiltIn = ["petugas", "bendahara", "superadmin"].indexOf(ui.loginRole) >= 0;
         var loginNamed = null;
@@ -3286,7 +3349,7 @@
           ui.error = ""; ui.rtError = ""; ui.rtDone = "";
           render(); window.scrollTo(0, 0);
         }
-        else if (act === "login-open") { ui.loginOpen = true; ui.loginError = ""; ui.loginPin = ""; render(); var lp = document.getElementById("login-pin"); if (lp) lp.focus(); }
+        else if (act === "login-open") { ui.loginOpen = true; ui.loginError = ""; ui.loginPin = ""; pastikanLoginUser(); render(); var lp = document.getElementById("login-pin"); if (lp) lp.focus(); }
         else if (act === "login-close") { ui.loginOpen = false; ui.loginPin = ""; ui.loginError = ""; render(); }
         else if (act === "logout") {
           logAudit("Keluar dari peran " + ROLE_LABEL[state.role] + " — kembali ke mode Warga.");
@@ -3597,7 +3660,7 @@
       document.addEventListener("change", function (ev) {
         var el = ev.target;
         var selBind = el.getAttribute && el.getAttribute("data-bind-sel");
-        if (selBind === "loginRole") { ui.loginRole = el.value; ui.loginUser = ""; ui.loginPin = ""; ui.loginError = ""; render(); return; }
+        if (selBind === "loginRole") { ui.loginRole = el.value; ui.loginUser = defaultLoginUser(ui.loginRole); ui.loginPin = ""; ui.loginError = ""; render(); return; }
         if (selBind === "loginUser") { ui.loginUser = el.value; ui.loginPin = ""; ui.loginError = ""; render(); return; }
         if (selBind && selBind in ui) { ui[selBind] = el.value; return; }
         var bind = el.getAttribute && el.getAttribute("data-bind");
@@ -3741,6 +3804,15 @@
           var luser = null;
           if (ui.loginUser) {
             state.users.forEach(function (x) { if (String(x.id) === String(ui.loginUser)) luser = x; });
+          }
+          /* Pertahanan terakhir bug akun tunggal: bila peran Admin/Warga
+             belum punya akun terpilih di state, isi dengan pengguna
+             bernama aktif pertama sebelum memvalidasi. */
+          if ((lrole === "admin" || lrole === "warga") && !luser) {
+            pastikanLoginUser();
+            if (ui.loginUser) {
+              state.users.forEach(function (x) { if (String(x.id) === String(ui.loginUser)) luser = x; });
+            }
           }
           if (luser) {
             /* Masuk lewat akun pengguna bernama (menu Users). */
