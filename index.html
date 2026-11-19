@@ -180,7 +180,7 @@
         padding-bottom: env(safe-area-inset-bottom);
       }
       @media (min-width: 640px) { nav.tabs-mobile { display: none; } }
-      nav.tabs-mobile .grid { display: grid; grid-template-columns: repeat(7, 1fr); }
+      nav.tabs-mobile .grid { display: grid; grid-template-columns: repeat(3, 1fr); }
       .subtabs { display: flex; flex-wrap: wrap; gap: 0.375rem; }
       .subtabs button {
         border: 1px solid var(--border); background: var(--surface); color: var(--dim);
@@ -203,6 +203,39 @@
       nav.tabs-mobile button[aria-current="page"] { color: var(--accent-ink); font-weight: 800; }
       nav.tabs-mobile svg { width: 20px; height: 20px; }
       nav.tabs-mobile .pill-count { top: 2px; right: calc(50% - 22px); }
+
+      /* ---------- Lembar menu berkelompok (HP <640px) ----------
+         Bilah bawah HP hanya berisi 3 tombol (Beranda, Jimpitan/Kas,
+         Menu); semua item menu ada di lembar bawah ini, dikelompokkan
+         seperti menu desktop (SIDE_GROUP_LABEL). Lembar hanya tampil
+         di <640px; di >=640px disembunyikan lewat CSS. */
+      .menu-sheet-overlay {
+        position: fixed; inset: 0; z-index: 70;
+        background: rgba(4, 20, 14, 0.55);
+        backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px);
+        display: flex; align-items: flex-end; justify-content: center;
+      }
+      @media (min-width: 640px) { .menu-sheet-overlay { display: none; } }
+      .menu-sheet {
+        width: 100%; max-width: 30rem; max-height: 82vh; overflow-y: auto;
+        background: var(--surface); color: var(--text);
+        border-radius: 1.25rem 1.25rem 0 0; border-top: 3px solid var(--gold);
+        box-shadow: 0 -16px 48px rgba(4, 28, 19, 0.35);
+        padding: 0.625rem 1rem calc(1rem + env(safe-area-inset-bottom));
+      }
+      .menu-sheet-handle { width: 2.5rem; height: 0.3rem; border-radius: 999px; background: var(--border); margin: 0.125rem auto 0.375rem; }
+      .menu-sheet-head { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; padding: 0.25rem 0.25rem 0.375rem; }
+      .menu-sheet-head h2 { margin: 0; font-size: 1.05rem; }
+      .menu-sheet-close { border: 0; background: transparent; color: var(--dim); border-radius: 999px; padding: 0.375rem; display: flex; align-items: center; justify-content: center; }
+      .menu-sheet-close:hover { background: var(--accent-soft); color: var(--accent-ink); }
+      .menu-sheet-close svg { width: 20px; height: 20px; }
+      .menu-sheet-group > p { margin: 0.625rem 0.25rem 0.25rem; font-size: 0.6875rem; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent-ink); }
+      .menu-sheet-item { position: relative; display: flex; align-items: center; gap: 0.75rem; width: 100%; border: 0; background: transparent; color: var(--text); border-radius: 0.75rem; padding: 0.625rem 0.75rem; font-size: 0.9375rem; font-weight: 600; text-align: left; min-height: 2.75rem; }
+      .menu-sheet-item svg { width: 20px; height: 20px; flex: none; color: var(--dim); }
+      .menu-sheet-item:hover { background: var(--accent-soft); }
+      .menu-sheet-item[aria-current="page"] { background: var(--accent-soft); color: var(--accent-ink); font-weight: 800; box-shadow: inset 3px 0 0 var(--gold); }
+      .menu-sheet-item[aria-current="page"] svg { color: var(--accent-ink); }
+      .menu-sheet-item .pill-count { top: 0.625rem; right: 0.75rem; }
 
       /* ---------- Bilah navigasi atas pengurus (desktop >=992px) ----------
          Menu pindah dari sidebar kiri KE DALAM baris header (satu baris
@@ -961,6 +994,7 @@
         pinPetugas: null, pinBendahara: null, pinSuper: null, pinError: "", pinDone: false,
         notifOpen: false,
         navDrop: null, /* dropdown kelompok menu yang terbuka di bilah atas (null = semua tertutup) */
+        menuSheet: false, /* lembar menu berkelompok di HP (true = terbuka) */
         cariWarga: "", cariWargaRun: false,
         pfEdit: null, pfHouse: "", pfKK: "", pfNik: "", pfNama: "", pfHub: "Kepala Keluarga",
         pfPekerjaan: "", pfPendidikan: "", pfDarah: "", pfLahir: "", pfAgama: "", pfKawin: "",
@@ -1852,6 +1886,34 @@
         return html;
       }
 
+      /* Lembar menu berkelompok HP (<640px): semua item menu SIDE yang
+         boleh dilihat peran itu, dikelompokkan seperti menu desktop.
+         Dibuka lewat tombol Menu di bilah bawah HP; item memakai
+         data-act="side" yang sama dengan dropdown desktop. */
+      var MENU_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>';
+      var SHEET_X = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>';
+      function viewMenuSheet(pc) {
+        var html = '<div class="menu-sheet-overlay" data-act="menu-sheet-backdrop"><div class="menu-sheet" role="dialog" aria-label="Menu">';
+        html += '<div class="menu-sheet-handle"></div>';
+        html += '<div class="menu-sheet-head"><h2 class="sec">Menu</h2><button type="button" class="menu-sheet-close" data-act="menu-sheet-close" aria-label="Tutup menu">' + SHEET_X + '</button></div>';
+        Object.keys(SIDE_GROUP_LABEL).forEach(function (g) {
+          var items = SIDE.filter(function (it) { return it.group === g && !(it.superOnly && !isSuper()) && canTab(it.tab); });
+          if (!items.length) return;
+          html += '<div class="menu-sheet-group"><p>' + esc(SIDE_GROUP_LABEL[g]) + '</p>';
+          items.forEach(function (it) {
+            html += '<button type="button" class="menu-sheet-item" data-act="side" data-tab="' + it.tab + '"' +
+              (it.sec ? ' data-sec="' + it.sec + '"' : "") +
+              (it.filter ? ' data-filter="' + it.filter + '"' : "") +
+              (sideActive(it) ? ' aria-current="page"' : "") + '>' + it.icon + '<span>' + it.label + '</span>' +
+              (it.tab === "keliling" && pc > 0 ? '<span class="pill-count num">' + pc + '</span>' : '') +
+              '</button>';
+          });
+          html += '</div>';
+        });
+        html += '</div></div>';
+        return html;
+      }
+
       /* Fokus input yang sedang diketik, ditangkap render() sebelum DOM
          diganti dan dipulihkan afterRender() — supaya render di tengah
          mengetik tidak membuat karakter berikutnya hilang. */
@@ -1930,17 +1992,28 @@
         if (ui.loginOpen) html += viewLogin();
         if (ui.pfModal) html += viewProfilModal();
         if (ui.cloudConfirm) html += viewCloudConfirm();
-        /* Nav bawah HP tidak memuat Profil (dibuka lewat bilah atas / chip
-           header) supaya tetap 7 entri yang lega. */
-        var tabsMobile = tabs.filter(function (t) { return t.id !== "profil"; });
-        html += '<nav class="tabs-mobile" aria-label="Menu utama"><div class="grid" style="grid-template-columns:repeat(' + tabsMobile.length + ',1fr)">';
-        tabsMobile.forEach(function (t) {
+        /* Bilah bawah HP hanya 3 tombol (Beranda, Jimpitan/Kas, Menu) —
+           menu lengkap ada di lembar berkelompok (viewMenuSheet), supaya
+           tidak penuh seperti grid 8 item dulu. Tombol cepat kedua adalah
+           Jimpitan Harian untuk pengurus dan Kas untuk warga (yang tidak
+           boleh membuka Jimpitan). */
+        var homeTab = null, quickTab = null;
+        for (var hi = 0; hi < TABS.length; hi++) if (TABS[hi].id === "beranda") { homeTab = TABS[hi]; break; }
+        for (var qi = 0; qi < TABS.length; qi++) if (TABS[qi].id === (isPengurus() ? "keliling" : "kas")) { quickTab = TABS[qi]; break; }
+        html += '<nav class="tabs-mobile" aria-label="Menu utama"><div class="grid" style="grid-template-columns:repeat(3,1fr)">';
+        [homeTab, quickTab].forEach(function (t) {
+          if (!t) return;
+          var qLabel = t.id === "keliling" ? "Jimpitan Harian" : t.label;
           html += '<button type="button" data-act="tab" data-tab="' + t.id + '"' +
-            (state.tab === t.id ? ' aria-current="page"' : "") + ">" + t.icon + "<span>" + t.label + "</span>" +
+            (state.tab === t.id ? ' aria-current="page"' : "") + ">" + t.icon + "<span>" + qLabel + "</span>" +
             (t.id === "keliling" && pc > 0 ? '<span class="pill-count num">' + pc + "</span>" : "") +
             "</button>";
         });
+        var menuActive = state.tab !== "beranda" && (!quickTab || state.tab !== quickTab.id);
+        html += '<button type="button" data-act="menu-sheet-open" aria-label="Buka menu"' +
+          (menuActive ? ' aria-current="page"' : "") + ">" + MENU_ICON + "<span>Menu</span></button>";
         html += "</div></nav>";
+        if (ui.menuSheet) html += viewMenuSheet(pc);
         /* Tangkap fokus sebelum DOM diganti: render() membangun ulang
            seluruh #app, jadi input yang sedang diketik ikut hancur dan
            harus dipulihkan afterRender(). */
@@ -4091,9 +4164,9 @@
         ui.fAlamat = ""; ui.fRw = ""; ui.fJmlPenghuni = ""; ui.fJmlKK = ""; ui.fHp = ""; ui.fStatusHunian = "Milik Sendiri";
       }
 
-      /* Escape menutup dropdown bilah atas yang sedang terbuka. */
+      /* Escape menutup dropdown bilah atas / lembar menu HP yang sedang terbuka. */
       document.addEventListener("keydown", function (ev) {
-        if (ev.key === "Escape" && ui.navDrop) { ui.navDrop = null; render(); }
+        if (ev.key === "Escape" && (ui.navDrop || ui.menuSheet)) { ui.navDrop = null; ui.menuSheet = false; render(); }
       });
 
       document.addEventListener("click", function (ev) {
@@ -4111,7 +4184,7 @@
         if (act === "tab") {
           var dest = t.getAttribute("data-tab");
           if (!canTab(dest)) { ui.loginOpen = true; ui.loginError = "Tab itu khusus pengurus. Masuk dulu dengan PIN peran Anda."; render(); return; }
-          state.tab = dest; ui.error = ""; render(); window.scrollTo(0, 0);
+          state.tab = dest; ui.error = ""; ui.menuSheet = false; render(); window.scrollTo(0, 0);
         }
         else if (act === "side") {
           var dest2 = t.getAttribute("data-tab");
@@ -4122,26 +4195,29 @@
           var pf = t.getAttribute("data-filter");
           if (pf) ui.pfFilter = pf;
           else if (sec === "profil") ui.pfFilter = "semua";
-          ui.error = ""; ui.rtError = ""; ui.rtDone = ""; ui.navDrop = null;
+          ui.error = ""; ui.rtError = ""; ui.rtDone = ""; ui.navDrop = null; ui.menuSheet = false;
           render(); window.scrollTo(0, 0);
         }
         else if (act === "navdrop") {
           var g = t.getAttribute("data-group");
           ui.navDrop = (ui.navDrop === g) ? null : g; render();
         }
+        else if (act === "menu-sheet-open") { ui.menuSheet = true; ui.navDrop = null; render(); }
+        else if (act === "menu-sheet-close") { ui.menuSheet = false; render(); }
+        else if (act === "menu-sheet-backdrop") { if (ev.target === t) { ui.menuSheet = false; render(); } }
         else if (act === "profil-pin-open") {
           ui.profilPinOpen = true; ui.profilPinLama = ""; ui.profilPinBaru = ""; ui.profilPinConf = "";
           ui.profilPinError = ""; ui.profilPinDone = false; render();
         }
         else if (act === "profil-pin-close") { ui.profilPinOpen = false; ui.profilPinError = ""; render(); }
-        else if (act === "login-open") { ui.loginOpen = true; ui.loginError = ""; ui.loginPin = ""; if (!state.pins.superadmin) { ui.serverLogin = true; ui.serverNoAccount = false; } render(); var ln = document.getElementById("login-nama") || document.getElementById("server-nama"); if (ln) ln.focus(); }
+        else if (act === "login-open") { ui.menuSheet = false; ui.loginOpen = true; ui.loginError = ""; ui.loginPin = ""; if (!state.pins.superadmin) { ui.serverLogin = true; ui.serverNoAccount = false; } render(); var ln = document.getElementById("login-nama") || document.getElementById("server-nama"); if (ln) ln.focus(); }
         else if (act === "login-close") { ui.loginOpen = false; ui.loginPin = ""; ui.loginError = ""; render(); }
         else if (act === "server-login-open") { ui.serverLogin = true; ui.serverError = ""; ui.serverPin = ""; ui.serverNoAccount = false; render(); var sn = document.getElementById("server-nama"); if (sn) sn.focus(); }
         else if (act === "server-login-back") { ui.serverLogin = false; ui.serverError = ""; ui.serverNoAccount = false; render(); }
         else if (act === "logout") {
           logAudit("Keluar dari peran " + ROLE_LABEL[state.role] + " — kembali ke mode Warga.");
           state.role = "warga"; state.nama = ""; state.userId = null; state.tab = "beranda";
-          ui.namaError = ""; ui.error = ""; render(); window.scrollTo(0, 0);
+          ui.namaError = ""; ui.error = ""; ui.menuSheet = false; render(); window.scrollTo(0, 0);
         }
         else if (act === "shift-date") { ui.tanggal = shiftDate(ui.tanggal, Number(t.getAttribute("data-days"))); render(); }
         else if (act === "catat") { catatSetoran(Number(t.getAttribute("data-house")), Number(t.getAttribute("data-total"))); }
