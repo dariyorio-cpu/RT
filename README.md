@@ -7,6 +7,7 @@ Tampilan disamakan dengan video demo SI-RT/RW Digital V2: halaman depan publik (
 ## Aturan yang terkunci
 
 - Jimpitan **Rp500 per rumah per hari**, keliling setiap hari.
+- **Jadwal Keliling**: admin menetapkan kelompok yang bertugas per tanggal (menu Jadwal Keliling); hanya anggota kelompok yang bertugas pada tanggal itu yang bisa mencatat setoran — berlaku untuk semua peran, termasuk Super Admin. Tanpa jadwal aktif, tidak ada yang bisa mencatat.
 - Setoran **Rp1.000 otomatis terpecah** jadi Rp500 jimpitan + Rp500 kelebihan. Kelebihan tercatat terpisah tapi sumbernya tetap terlihat (nomor rumah, tanggal, petugas).
 - Peran terpisah: **Petugas** mencatat, **Bendahara** memverifikasi dan mengelola kas, **Warga** hanya melihat transparansi.
 - Koreksi pakai status batal beralasan, bukan hapus data.
