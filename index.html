@@ -847,6 +847,7 @@
         sSaldoUtama: null, sSaldoProyek: null, sSaldoKematian: null,
         eKas: "utama",
         houseArsipFor: null, houseArsipReason: "",
+        houseHapusFor: null,
         jdNama: "", jdAnggota: [], jdGroupEdit: null,   /* form kelompok tugas */
         jdTgl: todayStr(), jdGroup: "", jdSchedEdit: null, jdError: "", jdDone: ""
       };
@@ -1404,6 +1405,19 @@
       function houseById(id) {
         for (var i = 0; i < state.houses.length; i++) if (state.houses[i].id === id) return state.houses[i];
         return null;
+      }
+      /* Riwayat yang mengikat sebuah rumah: setoran jimpitan apa pun statusnya
+         (termasuk yang batal — tetap jejak riwayat) dan profil warga yang
+         menunjuk rumah itu. Iuran dicatat per KK (state.warga) tanpa tautan
+         rumah, jadi tidak bisa diatribusikan ke satu rumah. */
+      function houseRiwayat(h) {
+        var setoran = 0, profil = 0;
+        state.collections.forEach(function (c) { if (c.houseId === h.id) setoran++; });
+        state.profil.forEach(function (p) { if (p.houseId === h.id) profil++; });
+        var rincian = [];
+        if (setoran) rincian.push(setoran + " setoran jimpitan");
+        if (profil) rincian.push(profil + " profil warga terhubung");
+        return { setoran: setoran, profil: profil, punya: (setoran + profil) > 0, rincian: rincian };
       }
       function sortedHouses() {
         return state.houses.slice().sort(function (a, b) {
@@ -2499,6 +2513,8 @@
             (h.status === "aktif" ? badge("green", "Aktif") : h.status === "kosong" ? badge("gray", "Kosong") : badge("red", "Nonaktif")) +
             (canWrite ? '<button type="button" class="btn btn-ghost" data-act="house-edit" data-id="' + h.id + '">Ubah</button>' : "") +
             (canWrite && h.status !== "nonaktif" ? '<button type="button" class="btn btn-danger-ghost" data-act="house-arsip-open" data-id="' + h.id + '">Arsipkan</button>' : "") +
+            (canWrite && h.status === "nonaktif" ? '<button type="button" class="btn btn-primary" data-act="house-aktifkan" data-id="' + h.id + '">Aktifkan</button>' : "") +
+            (canWrite ? '<button type="button" class="btn btn-danger-ghost" data-act="house-hapus-open" data-id="' + h.id + '">Hapus</button>' : "") +
             "</div></div>";
           if (canWrite && ui.houseArsipFor === h.id) {
             html += '<form class="card" data-form="house-arsip" data-id="' + h.id + '" style="padding:.75rem 1rem">' +
@@ -2506,7 +2522,24 @@
               '<input id="arsip-rumah-' + h.id + '" type="text" class="inp" placeholder="mis. penghuni pindah, rumah dijual" value="' + esc(ui.houseArsipReason) + '" data-bind="houseArsipReason">' +
               '<div class="actions-row"><button type="submit" class="btn btn-danger">Arsipkan rumah</button>' +
               '<button type="button" class="btn btn-ghost" data-act="house-arsip-close">Kembali</button></div>' +
-              '<p class="hint">Rumah tidak dihapus — statusnya menjadi Nonaktif, hilang dari daftar keliling, dan alasannya tercatat di audit log. Bisa diaktifkan lagi lewat tombol Ubah.</p></form>';
+              '<p class="hint">Rumah tidak dihapus — statusnya menjadi Nonaktif, hilang dari daftar keliling, dan alasannya tercatat di audit log. Bisa diaktifkan lagi lewat tombol Aktifkan di daftar rumah.</p></form>';
+          }
+          if (canWrite && ui.houseHapusFor === h.id) {
+            var rwH = houseRiwayat(h);
+            if (rwH.punya) {
+              html += '<div class="card" style="padding:.75rem 1rem;border-color:var(--danger)">' +
+                '<p style="margin:0 0 .25rem;font-weight:700">Rumah ' + esc(h.nomor) + ' tidak bisa dihapus permanen</p>' +
+                '<p class="s" style="margin:0 0 .5rem">Rumah ini masih punya riwayat: ' + esc(rwH.rincian.join(", ")) + '. Menghapusnya akan merusak catatan kas dan riwayat warga yang merujuk rumah ini.</p>' +
+                '<div class="actions-row"><button type="button" class="btn btn-danger" data-act="house-hapus-arsip" data-id="' + h.id + '">Arsipkan sebagai gantinya</button>' +
+                '<button type="button" class="btn btn-ghost" data-act="house-hapus-close">Tutup</button></div>' +
+                '<p class="hint">Mengarsipkan mengubah status menjadi Nonaktif — rumah hilang dari daftar keliling, tetapi seluruh riwayatnya tetap utuh dan tetap bisa dilihat di laporan.</p></div>';
+            } else {
+              html += '<form class="card" data-form="house-hapus" data-id="' + h.id + '" style="padding:.75rem 1rem;border-color:var(--danger)">' +
+                '<p style="margin:0 0 .25rem;font-weight:700">Hapus rumah ' + esc(h.nomor) + ' (' + esc(h.namaPenghuni) + ')?</p>' +
+                '<p class="s" style="margin:0 0 .5rem">Rumah ini belum punya riwayat setoran jimpitan maupun warga terhubung, jadi aman dihapus permanen. Tindakan ini tidak bisa dibatalkan.</p>' +
+                '<div class="actions-row"><button type="submit" class="btn btn-danger">Ya, hapus permanen</button>' +
+                '<button type="button" class="btn btn-ghost" data-act="house-hapus-close">Batal</button></div></form>';
+            }
           }
         });
         html += "</div>";
@@ -4001,6 +4034,15 @@
         else if (act === "dl-kas-html") { unduhKasHtml(); }
         else if (act === "house-arsip-open") { if (!canKelola()) return; ui.houseArsipFor = Number(t.getAttribute("data-id")); ui.houseArsipReason = ""; render(); }
         else if (act === "house-arsip-close") { ui.houseArsipFor = null; render(); }
+        else if (act === "house-hapus-open") { if (!canKelola()) return; ui.houseHapusFor = Number(t.getAttribute("data-id")); ui.houseArsipFor = null; render(); }
+        else if (act === "house-hapus-close") { ui.houseHapusFor = null; render(); }
+        else if (act === "house-hapus-arsip") { if (!canKelola()) return; ui.houseArsipFor = Number(t.getAttribute("data-id")); ui.houseHapusFor = null; ui.houseArsipReason = ""; render(); }
+        else if (act === "house-aktifkan") {
+          if (!canKelola()) return;
+          var hak = houseById(Number(t.getAttribute("data-id")));
+          if (hak) { hak.status = "aktif"; logAudit("Data rumah diaktifkan kembali: Rumah " + hak.nomor + " (" + hak.namaPenghuni + ")."); }
+          render();
+        }
         else if (act === "pf-filter") { ui.pfFilter = t.getAttribute("data-val"); render(); }
         else if (act === "pf-cancel") { resetProfilForm(); render(); }
         else if (act === "pf-edit") {
@@ -4841,6 +4883,22 @@
             logAudit("Data rumah diarsipkan: Rumah " + ha.nomor + " (" + ha.namaPenghuni + ") — alasan: " + ui.houseArsipReason.trim() + ".");
           }
           ui.houseArsipFor = null; ui.houseArsipReason = ""; ui.error = "";
+          render();
+        }
+        else if (kind === "house-hapus") {
+          if (!canKelola()) return;
+          var hd = houseById(Number(form.getAttribute("data-id")));
+          if (!hd) { ui.houseHapusFor = null; render(); return; }
+          var rwD = houseRiwayat(hd);
+          if (rwD.punya) {
+            ui.error = "Rumah " + hd.nomor + " tidak bisa dihapus permanen — masih punya riwayat (" + rwD.rincian.join(", ") + "). Arsipkan saja supaya riwayatnya tetap utuh.";
+            ui.houseHapusFor = null; render(); return;
+          }
+          state.houses = state.houses.filter(function (hh) { return hh.id !== hd.id; });
+          if (ui.houseForm && ui.houseForm.editingId === hd.id) resetHouseForm();
+          if (String(ui.pfHouse) === String(hd.id)) ui.pfHouse = "";
+          logAudit("Data rumah dihapus: Rumah " + hd.nomor + " (" + hd.namaPenghuni + ") — belum punya riwayat setoran/warga.");
+          ui.houseHapusFor = null; ui.error = "";
           render();
         }
         else if (kind === "my-login") {
