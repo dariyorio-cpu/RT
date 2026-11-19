@@ -1778,10 +1778,44 @@
       function canCatat() { return isPengurus(); }              /* catat/ubah/batal setoran jimpitan */
       function canKelola() { return isBendahara(); }            /* verifikasi, kas keluar, rumah, modul RT/RW */
       function canKelolaJadwal() { return state.role === "superadmin" || state.role === "admin"; } /* kelola kelompok tugas & jadwal keliling — Bendahara/Petugas hanya lihat */
-      function canTab(tab) {
+      /* Visibilitas menu per peran (keputusan pengguna 20 Nov 2026):
+         petugas HANYA melihat Dashboard, Jimpitan Harian, Jadwal Keliling,
+         Data Rumah, Profil Warga, Laporan, dan Profil Saya — Arus Kas,
+         Ceklist Iuran, Warga Pindah/Meninggal, Aset, Layanan Warga,
+         Agenda & Pengumuman, Daftar UMKM, Broadcast WA, Users, dan
+         Pengaturan disembunyikan. Bendahara/Admin/Super Admin/Warga tidak
+         berubah. Parameter sec/filter membedakan entri menu di bawah tab
+         yang sama (semua entri Modul RT/RW bertab "rtrw"). */
+      function canTab(tab, sec, filter) {
         if (state.role === "warga") return tab === "beranda" || tab === "kas" || tab === "rtrw" || tab === "laporan" || tab === "profil";
         if (state.role === "superadmin") return true;
-        return tab !== "pengaturan" && tab !== "users"; /* petugas, bendahara, admin: semua tab kecuali Pengaturan & Users */
+        if (tab === "pengaturan" || tab === "users") return false;
+        if (state.role === "petugas") {
+          if (tab === "kas") return false;
+          if (tab === "rtrw") {
+            if (!sec) return true; /* tab RT/RW terbuka karena Profil Warga ada di dalamnya; subtab dibatasi rtSecsForRole() */
+            if (sec === "profil") return !filter || filter === "semua" || filter === "aktif";
+            return false;
+          }
+          return true;
+        }
+        return true; /* bendahara, admin: semua tab kecuali Pengaturan & Users */
+      }
+      /* Visibilitas satu entri menu SIDE (dipakai dropdown desktop dan
+         lembar menu HP — satu tempat supaya ketiganya konsisten). */
+      function canSide(it) {
+        if (it.superOnly && !isSuper()) return false;
+        return canTab(it.tab, it.sec, it.filter);
+      }
+      /* Penjaga tampilan saat ini: tab tersembunyi untuk peran yang login
+         (mis. lewat aksi lama/notifikasi atau state basi) dialihkan ke
+         Dashboard. Subtab RT/RW ditangani rtSecsForRole() + reset di
+         viewRTRW; yang dicek di sini adalah tab dan — untuk Profil Warga —
+         filter Pindah/Meninggal yang menunya disembunyikan untuk petugas. */
+      function canViewNow() {
+        if (!canTab(state.tab)) return false;
+        if (state.tab === "rtrw" && ui.rtSec === "profil") return canTab("rtrw", "profil", ui.pfFilter);
+        return true;
       }
       function visibleTabs() { return TABS.filter(function (t) { return canTab(t.id); }); }
       var TABS = [
@@ -1861,7 +1895,7 @@
       function viewTopnav(pc) {
         var html = '<nav class="topnav" aria-label="Menu pengurus">';
         Object.keys(SIDE_GROUP_LABEL).forEach(function (g) {
-          var items = SIDE.filter(function (it) { return it.group === g && !(it.superOnly && !isSuper()) && canTab(it.tab); });
+          var items = SIDE.filter(function (it) { return it.group === g && canSide(it); });
           if (!items.length) return;
           var gActive = items.some(sideActive);
           var gCount = pc > 0 && items.some(function (it) { return it.tab === "keliling"; });
@@ -1897,7 +1931,7 @@
         html += '<div class="menu-sheet-handle"></div>';
         html += '<div class="menu-sheet-head"><h2 class="sec">Menu</h2><button type="button" class="menu-sheet-close" data-act="menu-sheet-close" aria-label="Tutup menu">' + SHEET_X + '</button></div>';
         Object.keys(SIDE_GROUP_LABEL).forEach(function (g) {
-          var items = SIDE.filter(function (it) { return it.group === g && !(it.superOnly && !isSuper()) && canTab(it.tab); });
+          var items = SIDE.filter(function (it) { return it.group === g && canSide(it); });
           if (!items.length) return;
           html += '<div class="menu-sheet-group"><p>' + esc(SIDE_GROUP_LABEL[g]) + '</p>';
           items.forEach(function (it) {
@@ -1921,7 +1955,7 @@
       function render() {
         var s = state.settings;
         var pc = pendingCount();
-        if (!canTab(state.tab)) state.tab = "beranda";
+        if (!canViewNow()) state.tab = "beranda";
         var tabs = visibleTabs();
         var roleNote = ""; /* Paragraf penjelasan peran setelah login dihapus
           untuk semua peran — memenuhi tampilan, seperti paragraf
@@ -2167,8 +2201,8 @@
         } else {
           html += '<button type="button" class="btn btn-light" data-act="side" data-tab="rtrw" data-sec="bayar">Cek Iuran Saya</button>';
         }
-        html += '<button type="button" class="btn btn-outline-light" data-act="tab" data-tab="kas">Lihat Transparansi Kas</button>' +
-          "</div></section>";
+        if (canTab("kas")) html += '<button type="button" class="btn btn-outline-light" data-act="tab" data-tab="kas">Lihat Transparansi Kas</button>';
+        html += "</div></section>";
 
         if (state.houses.length === 0) {
           html += '<div class="notice-amber"><p style="margin:0;font-size:.875rem;font-weight:600">Data rumah masih kosong</p>' +
@@ -2988,7 +3022,7 @@
           return ["surat", "aduan", "agenda", "umum", "umkm", "bayar"].indexOf(s.id) >= 0;
         });
         if (state.role === "petugas") return RT_SECS.filter(function (s) {
-          return ["audit", "broadcast", "bayar"].indexOf(s.id) < 0;
+          return s.id === "profil"; /* menu per peran: petugas hanya melihat Profil Warga dari Modul RT/RW */
         });
         return RT_SECS.filter(function (s) { return s.id !== "bayar"; });
       }
@@ -3099,7 +3133,7 @@
             '<input id="pf-cari" type="search" class="inp" placeholder="Nama, NIK, atau No. KK…" value="' + esc(ui.pfCari) + '" data-bind="pfCari"></div>' +
             (manage ? '<button type="button" class="btn-add-round" data-act="pf-modal-open" title="Tambah Profil Warga" aria-label="Tambah Profil Warga"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>' : "") + '</div>';
           html += '<div class="subtabs" style="margin-top:.75rem">' +
-            [["semua", "Semua"], ["aktif", "Aktif"], ["pindah", "Pindah"], ["meninggal", "Meninggal"]].map(function (f) {
+            [["semua", "Semua"], ["aktif", "Aktif"], ["pindah", "Pindah"], ["meninggal", "Meninggal"]].filter(function (f) { return state.role !== "petugas" || f[0] === "semua" || f[0] === "aktif"; }).map(function (f) {
               return '<button type="button" data-act="pf-filter" data-val="' + f[0] + '"' + (ui.pfFilter === f[0] ? ' aria-current="true"' : "") + ">" + f[1] +
                 " (" + state.profil.filter(function (p) { return f[0] === "semua" || (p.statusTinggal || "aktif") === f[0]; }).length + ")</button>";
             }).join("") + "</div>";
@@ -4183,16 +4217,22 @@
         var act = t.getAttribute("data-act");
         if (act === "tab") {
           var dest = t.getAttribute("data-tab");
-          if (!canTab(dest)) { ui.loginOpen = true; ui.loginError = "Tab itu khusus pengurus. Masuk dulu dengan PIN peran Anda."; render(); return; }
+          if (!canTab(dest)) {
+            if (isPengurus()) { state.tab = "beranda"; render(); return; } /* sudah login tapi tab itu disembunyikan untuk perannya — kembali ke Dashboard */
+            ui.loginOpen = true; ui.loginError = "Tab itu khusus pengurus. Masuk dulu dengan PIN peran Anda."; render(); return;
+          }
           state.tab = dest; ui.error = ""; ui.menuSheet = false; render(); window.scrollTo(0, 0);
         }
         else if (act === "side") {
           var dest2 = t.getAttribute("data-tab");
-          if (!canTab(dest2)) { ui.loginOpen = true; ui.loginError = "Menu itu khusus pengurus. Masuk dulu dengan PIN peran Anda."; render(); return; }
-          state.tab = dest2;
           var sec = t.getAttribute("data-sec");
-          if (sec) ui.rtSec = sec;
           var pf = t.getAttribute("data-filter");
+          if (!canTab(dest2, sec, pf)) {
+            if (isPengurus()) { state.tab = "beranda"; ui.navDrop = null; ui.menuSheet = false; render(); return; } /* menu itu disembunyikan untuk perannya — kembali ke Dashboard */
+            ui.loginOpen = true; ui.loginError = "Menu itu khusus pengurus. Masuk dulu dengan PIN peran Anda."; render(); return;
+          }
+          state.tab = dest2;
+          if (sec) ui.rtSec = sec;
           if (pf) ui.pfFilter = pf;
           else if (sec === "profil") ui.pfFilter = "semua";
           ui.error = ""; ui.rtError = ""; ui.rtDone = ""; ui.navDrop = null; ui.menuSheet = false;
@@ -4266,7 +4306,7 @@
         else if (act === "notif-toggle") { ui.notifOpen = !ui.notifOpen; render(); }
         else if (act === "notif-go") {
           var nt = t.getAttribute("data-tab"), ns = t.getAttribute("data-sec");
-          if (!canTab(nt)) return;
+          if (!canTab(nt, ns)) { state.tab = "beranda"; ui.notifOpen = false; ui.error = ""; ui.rtError = ""; ui.rtDone = ""; render(); window.scrollTo(0, 0); return; } /* notifikasi menuju halaman yang disembunyikan untuk peran ini — kembali ke Dashboard */
           state.tab = nt; if (ns) ui.rtSec = ns;
           ui.notifOpen = false; ui.error = ""; ui.rtError = ""; ui.rtDone = "";
           render(); window.scrollTo(0, 0);
@@ -4286,7 +4326,7 @@
           if (hak) { hak.status = "aktif"; logAudit("Data rumah diaktifkan kembali: Rumah " + hak.nomor + " (" + hak.namaPenghuni + ")."); }
           render();
         }
-        else if (act === "pf-filter") { ui.pfFilter = t.getAttribute("data-val"); render(); }
+        else if (act === "pf-filter") { var pfv = t.getAttribute("data-val"); if (state.role === "petugas" && (pfv === "pindah" || pfv === "meninggal")) return; ui.pfFilter = pfv; render(); }
         else if (act === "pf-modal-open") {
           if (!canKelola()) return;
           resetProfilForm(); ui.pfModal = true; ui.rtError = ""; ui.rtDone = ""; render();
