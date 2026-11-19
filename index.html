@@ -190,7 +190,7 @@
       }
       .subtabs button:hover { border-color: var(--accent); color: var(--accent-ink); }
       .subtabs button[aria-current="true"] { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
-      /* Di layar laptop sidebar sudah memuat entri RT/RW yang sama —
+      /* Di layar laptop bilah navigasi atas sudah memuat entri RT/RW yang sama —
          bilah subtab NAVIGASI disembunyikan di >=992px. Bilah subtab
          lain (mis. filter Semua/Aktif/Pindah/Meninggal di Profil
          Warga) bukan navigasi dan tetap tampil. */
@@ -205,44 +205,56 @@
       nav.tabs-mobile svg { width: 20px; height: 20px; }
       nav.tabs-mobile .pill-count { top: 2px; right: calc(50% - 22px); }
 
-      /* ---------- Layout dengan sidebar admin (desktop) ---------- */
+      /* ---------- Bilah navigasi atas pengurus (desktop >=992px) ----------
+         Menu pindah dari sidebar kiri ke bilah atas dengan dropdown per
+         kelompok, supaya konten (termasuk tabel) memanfaatkan seluruh
+         lebar halaman. Di bawah 992px bilah ini tidak tampil: tablet
+         memakai nav.tabs-desktop, HP memakai nav.tabs-mobile. */
       .layout { display: block; }
-      @media (min-width: 992px) { .layout.noside { grid-template-columns: minmax(0, 1fr); } }
-      aside.sidebar { display: none; }
+      .topnav { display: none; }
       @media (min-width: 992px) {
-        .layout { display: grid; grid-template-columns: 248px minmax(0, 1fr); gap: 1.5rem; align-items: start; }
-        aside.sidebar {
-          display: block; position: sticky; top: 5.5rem;
-          background: var(--surface); border: 1px solid var(--border);
-          border-radius: 1rem; box-shadow: var(--shadow); padding: 0.75rem;
+        .wrap { max-width: 84rem; }
+        .topnav {
+          display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem;
+          padding: 0.5rem 0 0.625rem; border-top: 1px solid var(--border);
         }
-        aside.sidebar .side-title {
-          font-size: 0.6875rem; font-weight: 700; letter-spacing: 0.08em;
-          text-transform: uppercase; color: var(--dim); margin: 0.25rem 0.5rem 0.5rem;
+        .topnav-group { position: relative; }
+        .topnav-toggle {
+          display: inline-flex; align-items: center; gap: 0.375rem;
+          border: 0; border-radius: 999px; background: transparent; color: var(--text);
+          padding: 0.5rem 0.875rem; font-size: 0.875rem; font-weight: 700;
+          transition: background 0.15s ease, color 0.15s ease;
         }
-        aside.sidebar .side-group {
-          font-size: 0.6875rem; font-weight: 700; letter-spacing: 0.08em;
-          text-transform: uppercase; color: var(--gold);
-          margin: 0.75rem 0.5rem 0.25rem; padding-top: 0.75rem;
-          border-top: 1px solid var(--border);
+        .topnav-toggle:hover { background: var(--accent-soft); color: var(--accent-ink); }
+        .topnav-toggle.active { color: var(--accent-ink); box-shadow: inset 0 -3px 0 var(--gold); border-radius: 0.625rem 0.625rem 0 0; }
+        .topnav-toggle .chev { width: 14px; height: 14px; transition: transform 0.15s ease; }
+        .topnav-group.open .topnav-toggle { background: var(--accent-soft); color: var(--accent-ink); }
+        .topnav-group.open .topnav-toggle .chev { transform: rotate(180deg); }
+        .topnav-drop {
+          position: absolute; top: calc(100% + 0.375rem); left: 0; z-index: 40;
+          min-width: 15rem; background: var(--surface); border: 1px solid var(--border);
+          border-radius: 0.875rem; box-shadow: var(--shadow-lg); padding: 0.375rem;
         }
-        aside.sidebar .side-group.first { border-top: 0; padding-top: 0; margin-top: 0.25rem; }
-        aside.sidebar button {
+        .topnav-drop::before {
+          content: ""; position: absolute; top: 0; left: 0; right: 0; height: 3px;
+          border-radius: 0.875rem 0.875rem 0 0;
+          background: linear-gradient(90deg, var(--accent), var(--gold));
+        }
+        .topnav-drop button {
           position: relative; display: flex; align-items: center; gap: 0.625rem;
           width: 100%; border: 0; background: transparent; color: var(--text);
           border-radius: 0.625rem; padding: 0.5rem 0.625rem; font-size: 0.875rem; font-weight: 500;
           text-align: left; min-height: 2.5rem;
           transition: background 0.15s ease, color 0.15s ease;
         }
-        aside.sidebar button svg { width: 18px; height: 18px; flex: none; color: var(--dim); }
-        aside.sidebar button:hover { background: var(--accent-soft); }
-        aside.sidebar button[aria-current="page"] {
+        .topnav-drop button svg { width: 18px; height: 18px; flex: none; color: var(--dim); }
+        .topnav-drop button:hover { background: var(--accent-soft); }
+        .topnav-drop button[aria-current="page"] {
           background: var(--accent-soft); color: var(--accent-ink); font-weight: 700;
           box-shadow: inset 3px 0 0 var(--gold);
         }
-        aside.sidebar button[aria-current="page"] svg { color: var(--accent-ink); }
-        aside.sidebar .pill-count { top: 0.375rem; right: 0.375rem; }
-        aside.sidebar hr { border: 0; border-top: 1px solid var(--border); margin: 0.5rem 0; }
+        .topnav-drop button[aria-current="page"] svg { color: var(--accent-ink); }
+        .topnav-drop .pill-count { top: 0.375rem; right: 0.375rem; }
       }
 
       main { padding: 1.25rem 0 6rem; min-width: 0; }
@@ -929,6 +941,7 @@
         serverLogin: true, serverNama: "", serverPin: "", serverError: "", serverBusy: false, serverNoAccount: false,
         pinPetugas: null, pinBendahara: null, pinSuper: null, pinError: "", pinDone: false,
         notifOpen: false,
+        navDrop: null, /* dropdown kelompok menu yang terbuka di bilah atas (null = semua tertutup) */
         cariWarga: "", cariWargaRun: false,
         pfEdit: null, pfHouse: "", pfKK: "", pfNik: "", pfNama: "", pfHub: "Kepala Keluarga",
         pfPekerjaan: "", pfPendidikan: "", pfDarah: "", pfLahir: "", pfAgama: "", pfKawin: "",
@@ -1764,11 +1777,12 @@
         return "Rumah " + h.nomor + " · " + h.namaPenghuni + (h.hp ? " · " + h.hp : "");
       }
 
-      /* Menu sidebar admin (desktop) — dikelompokkan menurut fungsi
-         fitur (SIDE_GROUP_LABEL); entri tingkat atas yang diratakan;
-         tiap entri Modul RT/RW membuka subtab yang sama (bilah subtab
-         navigasi di dalam tampilan disembunyikan di layar >=992px
-         lewat CSS karena sidebar sudah memuat entri yang sama). */
+      /* Menu pengurus desktop (bilah atas, dropdown per kelompok) —
+         dikelompokkan menurut fungsi fitur (SIDE_GROUP_LABEL); entri
+         tingkat atas yang diratakan; tiap entri Modul RT/RW membuka
+         subtab yang sama (bilah subtab navigasi di dalam tampilan
+         disembunyikan di layar >=992px lewat CSS karena bilah atas
+         sudah memuat entri yang sama). */
       var SIDE_GROUP_LABEL = {
         utama: "Utama",
         warga: "Warga & Iuran",
@@ -1803,6 +1817,41 @@
         return true;
       }
 
+      /* Bilah navigasi atas pengurus (desktop >=992px): 4 tombol dropdown,
+         satu per kelompok menu SIDE. Hanya satu dropdown terbuka dalam
+         satu waktu (ui.navDrop); panel hanya dirender saat terbuka.
+         Penyaringan per peran sama seperti sidebar dulu: item superOnly
+         hanya untuk Super Admin, item yang canTab-nya false disembunyikan,
+         dan kelompok tanpa satu pun item yang terlihat disembunyikan. */
+      var NAV_CHEV = '<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>';
+      function viewTopnav(pc) {
+        var html = '<nav class="topnav" aria-label="Menu pengurus">';
+        Object.keys(SIDE_GROUP_LABEL).forEach(function (g) {
+          var items = SIDE.filter(function (it) { return it.group === g && !(it.superOnly && !isSuper()) && canTab(it.tab); });
+          if (!items.length) return;
+          var gActive = items.some(sideActive);
+          var gCount = pc > 0 && items.some(function (it) { return it.tab === "keliling"; });
+          html += '<div class="topnav-group' + (ui.navDrop === g ? " open" : "") + '">';
+          html += '<button type="button" class="topnav-toggle' + (gActive ? " active" : "") + '" data-act="navdrop" data-group="' + g + '" aria-haspopup="true" aria-expanded="' + (ui.navDrop === g) + '">' + esc(SIDE_GROUP_LABEL[g]) + NAV_CHEV +
+            (gCount ? '<span class="pill-count num">' + pc + '</span>' : '') + '</button>';
+          if (ui.navDrop === g) {
+            html += '<div class="topnav-drop" role="menu">';
+            items.forEach(function (it) {
+              html += '<button type="button" role="menuitem" data-act="side" data-tab="' + it.tab + '"' +
+                (it.sec ? ' data-sec="' + it.sec + '"' : "") +
+                (it.filter ? ' data-filter="' + it.filter + '"' : "") +
+                (sideActive(it) ? ' aria-current="page"' : "") + '>' + it.icon + '<span>' + it.label + '</span>' +
+                (it.tab === "keliling" && pc > 0 ? '<span class="pill-count num">' + pc + '</span>' : '') +
+                '</button>';
+            });
+            html += '</div>';
+          }
+          html += '</div>';
+        });
+        html += '</nav>';
+        return html;
+      }
+
       /* Fokus input yang sedang diketik, ditangkap render() sebelum DOM
          diganti dan dipulihkan afterRender() — supaya render di tengah
          mengetik tidak membuat karakter berikutnya hilang. */
@@ -1822,7 +1871,7 @@
         html += '</div></div><div class="top-actions">';
         /* Chip nama/peran di header: tombol pembuka Profil Saya bila sudah
            masuk (pengurus atau pengguna Warga bernama) — peran Warga tidak
-           punya sidebar, jadi chip inilah jalannya ke Profil. Mode Warga
+           punya bilah menu pengurus, jadi chip inilah jalannya ke Profil. Mode Warga
            publik (tanpa akun masuk) tetap tampil sebagai teks biasa. */
         var chipMasuk = isPengurus() || state.userId != null;
         var chipLabel = esc(ROLE_LABEL[state.role]) +
@@ -1860,28 +1909,9 @@
             (t.id === "keliling" && pc > 0 ? '<span class="pill-count num">' + pc + "</span>" : "") +
             "</button>";
         });
+        if (isPengurus()) html += viewTopnav(pc);
         html += "</nav></div></header>";
-        html += '<main><div class="wrap"><div class="layout' + (isPengurus() ? "" : " noside") + '">';
-        if (isPengurus()) {
-          html += '<aside class="sidebar" aria-label="Menu admin"><p class="side-title">Menu ' + esc(ROLE_LABEL[state.role]) + "</p>";
-          var curGroup = null;
-          SIDE.forEach(function (it, i) {
-            if (it.superOnly && !isSuper()) return;
-            if (!canTab(it.tab)) return;
-            var gLabel = SIDE_GROUP_LABEL[it.group] || "";
-            if (gLabel && gLabel !== curGroup) {
-              html += '<p class="side-group' + (curGroup === null ? " first" : "") + '">' + esc(gLabel) + "</p>";
-              curGroup = gLabel;
-            }
-            html += '<button type="button" data-act="side" data-tab="' + it.tab + '"' +
-              (it.sec ? ' data-sec="' + it.sec + '"' : "") +
-              (it.filter ? ' data-filter="' + it.filter + '"' : "") +
-              (sideActive(it) ? ' aria-current="page"' : "") + ">" + it.icon + "<span>" + it.label + "</span>" +
-              (it.tab === "keliling" && pc > 0 ? '<span class="pill-count num">' + pc + "</span>" : "") +
-              "</button>";
-          });
-          html += "</aside>";
-        }
+        html += '<main><div class="wrap"><div class="layout">';
         html += "<div>";
         if (ui.notifOpen && isPengurus()) {
           var nItems = notifItems();
@@ -1909,7 +1939,7 @@
         if (ui.loginOpen) html += viewLogin();
         if (ui.pfModal) html += viewProfilModal();
         if (ui.cloudConfirm) html += viewCloudConfirm();
-        /* Nav bawah HP tidak memuat Profil (dibuka lewat sidebar / chip
+        /* Nav bawah HP tidak memuat Profil (dibuka lewat bilah atas / chip
            header) supaya tetap 7 entri yang lega. */
         var tabsMobile = tabs.filter(function (t) { return t.id !== "profil"; });
         html += '<nav class="tabs-mobile" aria-label="Menu utama"><div class="grid" style="grid-template-columns:repeat(' + tabsMobile.length + ',1fr)">';
@@ -2125,7 +2155,7 @@
           "</section></div>";
 
         /* --- Layanan Cepat: HANYA mode Warga/publik. Pengurus sudah
-           punya sidebar dengan entri yang sama, jadi seksi ini dobel
+           punya bilah atas dengan entri yang sama, jadi seksi ini dobel
            bila ditampilkan setelah login. --- */
         if (state.role === "warga") {
         var layanan = [
@@ -4070,7 +4100,20 @@
         ui.fAlamat = ""; ui.fRw = ""; ui.fJmlPenghuni = ""; ui.fJmlKK = ""; ui.fHp = ""; ui.fStatusHunian = "Milik Sendiri";
       }
 
+      /* Escape menutup dropdown bilah atas yang sedang terbuka. */
+      document.addEventListener("keydown", function (ev) {
+        if (ev.key === "Escape" && ui.navDrop) { ui.navDrop = null; render(); }
+      });
+
       document.addEventListener("click", function (ev) {
+        /* Klik di luar bilah atas menutup dropdown yang sedang terbuka —
+           klik tetap diteruskan ke tujuannya (tombol form di halaman
+           tetap bekerja); render() membangun ulang DOM, tetapi elemen
+           yang diklik masih bisa dibaca lewat atributnya. */
+        if (ui.navDrop) {
+          var tg = ev.target;
+          if (!tg || !tg.closest || !tg.closest(".topnav")) { ui.navDrop = null; render(); }
+        }
         var t = ev.target.closest("[data-act]");
         if (!t) return;
         var act = t.getAttribute("data-act");
@@ -4088,8 +4131,12 @@
           var pf = t.getAttribute("data-filter");
           if (pf) ui.pfFilter = pf;
           else if (sec === "profil") ui.pfFilter = "semua";
-          ui.error = ""; ui.rtError = ""; ui.rtDone = "";
+          ui.error = ""; ui.rtError = ""; ui.rtDone = ""; ui.navDrop = null;
           render(); window.scrollTo(0, 0);
+        }
+        else if (act === "navdrop") {
+          var g = t.getAttribute("data-group");
+          ui.navDrop = (ui.navDrop === g) ? null : g; render();
         }
         else if (act === "profil-open") { state.tab = "profil"; ui.error = ""; render(); window.scrollTo(0, 0); }
         else if (act === "profil-pin-open") {
