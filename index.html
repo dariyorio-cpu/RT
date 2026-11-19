@@ -670,7 +670,7 @@
         uNama: "", uPeran: "petugas", uPin: "", uPinConf: "", uHp: "", uError: "", uDone: false,
         userPinFor: null, userPinNew: "", userPinConf: "", userPinError: "", userPinDone: false,
         setupNama: "", setupSuper: "", setupBendahara: "", setupPetugas: "", setupError: "",
-        serverLogin: false, serverRole: "petugas", serverNama: "", serverPin: "", serverError: "", serverBusy: false,
+        serverLogin: true, serverRole: "petugas", serverNama: "", serverPin: "", serverError: "", serverBusy: false,
         pinPetugas: null, pinBendahara: null, pinSuper: null, pinError: "", pinDone: false,
         notifOpen: false,
         cariWarga: "", cariWargaRun: false,
@@ -3470,7 +3470,7 @@
           ui.error = ""; ui.rtError = ""; ui.rtDone = "";
           render(); window.scrollTo(0, 0);
         }
-        else if (act === "login-open") { ui.loginOpen = true; ui.loginError = ""; ui.loginPin = ""; pastikanLoginUser(); render(); var lp = document.getElementById("login-pin"); if (lp) lp.focus(); }
+        else if (act === "login-open") { ui.loginOpen = true; ui.loginError = ""; ui.loginPin = ""; if (!state.pins.superadmin) ui.serverLogin = true; pastikanLoginUser(); render(); var lp = document.getElementById("login-pin"); if (lp) lp.focus(); }
         else if (act === "login-close") { ui.loginOpen = false; ui.loginPin = ""; ui.loginError = ""; render(); }
         else if (act === "server-login-open") { ui.serverLogin = true; ui.serverError = ""; ui.serverPin = ""; render(); var sn = document.getElementById("server-nama"); if (sn) sn.focus(); }
         else if (act === "server-login-back") { ui.serverLogin = false; ui.serverError = ""; render(); }
