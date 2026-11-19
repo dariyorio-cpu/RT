@@ -326,6 +326,16 @@
         box-shadow: 0 24px 48px rgba(4, 28, 19, 0.28);
       }
       @media (min-width: 768px) { .hero { padding: 3rem 2.5rem; } }
+      /* Hero ringkas di HP: kotak dan teks tidak lagi memenuhi layar. */
+      @media (max-width: 640px) {
+        .hero { padding: 1.125rem 1rem 1.25rem; border-radius: 1.125rem; }
+        .hero .kicker { font-size: 0.625rem; padding: 0.2rem 0.6rem; }
+        .hero h1 { font-size: 1.3rem; line-height: 1.25; margin-top: 0.75rem; }
+        .hero h1::after { margin-top: 0.625rem; width: 2.25rem; height: 0.15rem; }
+        .hero .lead { font-size: 0.875rem; margin-top: 0.5rem; }
+        .hero .cta { margin-top: 0.875rem; }
+        .hero .big { font-size: 1.5rem; }
+      }
       .hero .kicker {
         display: inline-block; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.06em;
         text-transform: uppercase; background: rgba(217, 168, 63, 0.18); color: #f0cd7e;
