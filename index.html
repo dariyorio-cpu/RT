@@ -670,6 +670,7 @@
         uNama: "", uPeran: "petugas", uPin: "", uPinConf: "", uHp: "", uError: "", uDone: false,
         userPinFor: null, userPinNew: "", userPinConf: "", userPinError: "", userPinDone: false,
         setupNama: "", setupSuper: "", setupBendahara: "", setupPetugas: "", setupError: "",
+        serverLogin: false, serverRole: "petugas", serverNama: "", serverPin: "", serverError: "", serverBusy: false,
         pinPetugas: null, pinBendahara: null, pinSuper: null, pinError: "", pinDone: false,
         notifOpen: false,
         cariWarga: "", cariWargaRun: false,
@@ -878,7 +879,7 @@
          lama yang tersimpan diabaikan, endpoint kini tetap /api/sync. */
       var LS_CLOUD_KEY = "sirt-rw-cloud-v1";
       var CLOUD_ENDPOINT = "/api/sync"; /* Vercel Serverless Function (Turso) — same-origin */
-      var cloud = { url: CLOUD_ENDPOINT, token: "", deviceId: "", lastSyncAt: null, lastKnownUpdatedAt: null, lastSyncOk: true };
+      var cloud = { url: CLOUD_ENDPOINT, token: "", sessionToken: "", serverNama: "", deviceId: "", lastSyncAt: null, lastKnownUpdatedAt: null, lastSyncOk: true };
       var cloudState = "belum";        /* belum | proses | tersinkron | offline | galat */
       var cloudGalatUntil = 0;         /* jeda sebelum coba ulang otomatis sesudah galat server */
       var cloudLastDevice = "";        /* deviceId perangkat terakhir yang mengubah data cloud */
@@ -889,7 +890,10 @@
       var cloudLastSentStr = null;     /* payload yang isinya sama persis dengan cloud terakhir diketahui */
       var cloudPending = null;         /* jawaban load yang menunggu pilihan pengguna (modal) */
 
-      function cloudTerhubung() { return !!cloud.token; }
+      function cloudTerhubung() { return !!(cloud.token || cloud.sessionToken); }
+      /* Token yang dikirim ke server: token sesi (masuk lewat akun server)
+         didahulukan, lalu token sinkron lama. */
+      function cloudAuthToken() { return cloud.sessionToken || cloud.token; }
       function simpanCloudCfg() {
         try { localStorage.setItem(LS_CLOUD_KEY, JSON.stringify(cloud)); } catch (e) { /* abaikan */ }
       }
@@ -901,6 +905,8 @@
             if (d && typeof d === "object") {
               cloud.url = CLOUD_ENDPOINT; /* URL Web App lama diabaikan */
               cloud.token = String(d.token || "");
+              cloud.sessionToken = String(d.sessionToken || "");
+              cloud.serverNama = String(d.serverNama || "");
               cloud.deviceId = String(d.deviceId || "");
               cloud.lastSyncAt = d.lastSyncAt || null;
               cloud.lastKnownUpdatedAt = d.lastKnownUpdatedAt || null;
@@ -943,6 +949,15 @@
         return "Tidak dapat menghubungi server cloud.";
       }
       function cloudGet(action) {
+        /* Perangkat yang masuk lewat akun server memakai POST supaya token
+           sesi tidak masuk ke URL (query string). Perangkat token lama
+           tetap memakai GET seperti sebelumnya. */
+        if (cloud.sessionToken) {
+          return fetch(CLOUD_ENDPOINT, {
+            method: "POST", headers: { "Content-Type": "text/plain" },
+            body: JSON.stringify({ token: cloud.sessionToken, action: action })
+          }).then(function (r) { return r.json(); });
+        }
         return fetch(CLOUD_ENDPOINT + "?action=" + action + "&token=" + encodeURIComponent(cloud.token), { method: "GET" })
           .then(function (r) { return r.json(); });
       }
@@ -1061,7 +1076,7 @@
         cloudSaving = true; cloudState = "proses";
         var payload = cloudPayload();
         var body = {
-          token: cloud.token, action: "save",
+          token: cloudAuthToken(), action: "save",
           updatedAt: new Date().toISOString(), deviceId: cloud.deviceId, state: payload
         };
         return fetch(CLOUD_ENDPOINT, {
@@ -1175,7 +1190,9 @@
       }
       function viewCloudSync() {
         var terhubung = cloudTerhubung();
+        var lewatServer = !!cloud.sessionToken;
         var statusTeks = !terhubung ? "Belum terhubung"
+          : lewatServer ? "Terhubung lewat akun server (" + (cloud.serverNama || "?") + ")"
           : cloudState === "offline" ? "Offline — data tersimpan di perangkat, akan disinkronkan nanti"
           : cloudState === "proses" ? "Sedang menyinkronkan…"
           : cloudState === "galat" ? "Terhubung — sinkron terakhir bermasalah, lihat pesan di bawah"
@@ -1185,6 +1202,7 @@
           '<div style="margin-top:.75rem">' +
           '<div><label class="lbl" for="cloud-token">Token sinkronisasi</label>' +
           '<input id="cloud-token" type="password" autocomplete="off" class="inp" placeholder="token sinkronisasi (env SYNC_TOKEN di Vercel)" value="' + esc(ui.cloudToken || "") + '" data-bind="cloudToken"></div></div>' +
+          (lewatServer ? '<p class="hint" style="margin-top:.5rem">Perangkat ini terhubung lewat akun server — token sinkronisasi tidak diperlukan. Token hanya perlu diisi bila perangkat ini ingin memakai cara lama.</p>' : "") +
           '<div class="list" style="margin-top:.75rem">' +
           '<div class="row-item"><div><p class="t">Status koneksi</p><p class="s">' + esc(statusTeks) + '</p></div></div>' +
           '<div class="row-item"><div><p class="t">Terakhir sinkron</p><p class="s">' +
@@ -2926,9 +2944,12 @@
       }
       function viewLogin() {
         if (!state.pins.superadmin) {
+          /* Perangkat baru yang datanya sudah ada di server bisa masuk
+             lewat akun server — tanpa membuat PIN dan tanpa token sinkron. */
+          if (ui.serverLogin) return viewServerLogin();
           return '<div class="modal-overlay"><form class="modal-card" data-form="setup">' +
             '<h2 class="sec" style="font-size:1.125rem">Penyiapan pertama — buat PIN pengurus</h2>' +
-            '<p class="sub">File aplikasi ini sengaja dibagikan <b>tanpa PIN bawaan apa pun</b>, supaya tidak ada kredensial yang bisa dibaca dari kode. Pemilik sistem (Super Admin) membuat PIN-nya sendiri di sini, sekali saja di perangkat ini. Catat dan berikan tiap PIN hanya kepada pemegang perannya.</p>' +
+            '<p class="sub">File aplikasi ini sengaja dibagikan <b>tanpa PIN bawaan apa pun</b>, supaya tidak ada kredensial yang bisa dibaca dari kode. Ini untuk perangkat pertama yang datanya belum ada di server: pemilik sistem (Super Admin) membuat PIN-nya sendiri di sini, sekali saja di perangkat ini. Catat dan berikan tiap PIN hanya kepada pemegang perannya. Bila data RT sudah ada di server, perangkat ini bisa langsung masuk dengan nama &amp; PIN lewat tombol di bawah.</p>' +
             '<div style="margin-top:1rem"><label class="lbl" for="setup-nama">Nama Super Admin</label>' +
             '<input id="setup-nama" type="text" class="inp" placeholder="mis. Pak Dariyo" value="' + esc(ui.setupNama) + '" data-bind="setupNama"></div>' +
             '<div style="margin-top:.75rem"><label class="lbl" for="setup-super">PIN Super Admin (4–6 angka)</label>' +
@@ -2941,6 +2962,7 @@
             (!storageOk ? '<p class="err" style="margin-top:.75rem">Penyimpanan browser tidak tersedia di jendela ini (mode privat/incognito “Samaran”, atau penyimpanan diblokir). PIN dan sesi masuk TIDAK bisa disimpan, jadi refresh akan meminta penyiapan dari awal lagi. Buka halaman ini di jendela browser biasa supaya PIN dan sesi tersimpan.</p>' : "") +
             '<div class="actions-row"><button type="submit" class="btn btn-primary">Simpan PIN &amp; masuk sebagai Super Admin</button>' +
             '<button type="button" class="btn btn-ghost" data-act="login-close">Batal</button></div>' +
+            '<div class="actions-row" style="margin-top:.5rem"><button type="button" class="btn btn-ghost" data-act="server-login-open">Sudah punya akun? Masuk dengan nama &amp; PIN</button></div>' +
             '<p class="hint" style="margin-top:.75rem">Setelah PIN dibuat, Anda langsung masuk sebagai Super Admin dan sesi itu tersimpan di perangkat ini: refresh, menutup tab, atau membuka lagi halaman ini tidak meminta PIN dari awal — sesi berakhir hanya bila Anda menekan tombol Keluar. PIN tersimpan hanya di perangkat ini dan ikut ter-ekspor di file cadangan JSON (cadangan versi 5). Pengguna tambahan (Admin, Bendahara, Petugas, atau Warga) bisa ditambah nanti di menu Users oleh Super Admin. Karena versi ini statis tanpa server, perlindungan ini mencegah warga biasa mengubah data dari tautan publik; keamanan penuh antarperangkat membutuhkan versi server.</p>' +
             "</form></div>";
         }
@@ -2983,6 +3005,30 @@
           '<p class="hint" style="margin-top:.75rem">Setelah masuk, sesi Anda tersimpan di perangkat ini: refresh atau membuka lagi halaman ini tidak meminta PIN ulang, sampai Anda menekan tombol Keluar. Lupa PIN peran? Super Admin bisa menggantinya di Pengaturan; PIN pengguna bernama diganti di menu Users. Karena versi ini statis tanpa server, PIN tersimpan di perangkat ini — perlindungan ini mencegah warga biasa mengubah data dari tautan publik; untuk keamanan penuh antarperangkat gunakan versi server.</p>' +
           "</form></div>";
         return html;
+      }
+
+      /* Masuk lewat akun server untuk perangkat baru: peran + nama + PIN
+         yang sudah tersimpan di server (Turso). Tidak perlu penyiapan PIN
+         dan tidak perlu token sinkron — data, PIN, dan pengguna diunduh
+         dari server setelah masuk. */
+      function viewServerLogin() {
+        return '<div class="modal-overlay"><form class="modal-card" data-form="server-login">' +
+          '<h2 class="sec" style="font-size:1.125rem">Masuk dengan akun server</h2>' +
+          '<p class="sub">Perangkat ini belum punya PIN. Masuk dengan peran, nama, dan PIN yang sudah tersimpan di server (Turso) — data, PIN, dan pengguna akan diunduh ke perangkat ini. Tidak perlu penyiapan PIN dan tidak perlu token sinkron.</p>' +
+          '<div style="margin-top:1rem"><label class="lbl" for="server-role">Peran</label>' +
+          '<select id="server-role" class="inp" data-bind-sel="serverRole">' +
+          ["petugas", "bendahara", "admin", "superadmin", "warga"].map(function (r) {
+            return '<option value="' + r + '"' + (ui.serverRole === r ? " selected" : "") + ">" + ROLE_LABEL[r] + "</option>";
+          }).join("") + "</select></div>" +
+          '<div style="margin-top:.75rem"><label class="lbl" for="server-nama">Nama Anda</label>' +
+          '<input id="server-nama" type="text" class="inp" placeholder="mis. Pak Dariyo" value="' + esc(ui.serverNama) + '" data-bind="serverNama"></div>' +
+          '<div style="margin-top:.75rem"><label class="lbl" for="server-pin">PIN</label>' +
+          '<input id="server-pin" type="password" inputmode="numeric" autocomplete="off" class="inp" placeholder="PIN angka" value="' + esc(ui.serverPin) + '" data-bind="serverPin"></div>' +
+          (ui.serverError ? '<p class="field-err">' + esc(ui.serverError) + "</p>" : "") +
+          '<div class="actions-row"><button type="submit" class="btn btn-primary"' + (ui.serverBusy ? " disabled" : "") + ">" + (ui.serverBusy ? "Memeriksa…" : "Masuk &amp; unduh data") + "</button>" +
+          '<button type="button" class="btn btn-ghost" data-act="server-login-back">Kembali ke penyiapan pertama</button></div>' +
+          '<p class="hint" style="margin-top:.75rem">Sesi masuk tersimpan di perangkat ini seperti biasa — refresh tidak meminta PIN lagi sampai Anda menekan tombol Keluar. Bila akun dikunci karena terlalu banyak percobaan salah, tunggu 15 menit.</p>' +
+          "</form></div>";
       }
 
       /* ================= Super Admin ================= */
@@ -3426,6 +3472,8 @@
         }
         else if (act === "login-open") { ui.loginOpen = true; ui.loginError = ""; ui.loginPin = ""; pastikanLoginUser(); render(); var lp = document.getElementById("login-pin"); if (lp) lp.focus(); }
         else if (act === "login-close") { ui.loginOpen = false; ui.loginPin = ""; ui.loginError = ""; render(); }
+        else if (act === "server-login-open") { ui.serverLogin = true; ui.serverError = ""; ui.serverPin = ""; render(); var sn = document.getElementById("server-nama"); if (sn) sn.focus(); }
+        else if (act === "server-login-back") { ui.serverLogin = false; ui.serverError = ""; render(); }
         else if (act === "logout") {
           logAudit("Keluar dari peran " + ROLE_LABEL[state.role] + " — kembali ke mode Warga.");
           state.role = "warga"; state.nama = ""; state.userId = null; state.tab = "beranda";
@@ -3651,7 +3699,7 @@
         }
         else if (act === "cloud-disconnect") {
           if (!isSuper()) return;
-          cloud.token = "";
+          cloud.token = ""; cloud.sessionToken = ""; cloud.serverNama = "";
           cloud.lastSyncAt = null; cloud.lastKnownUpdatedAt = null; cloud.lastSyncOk = true;
           cloudState = "belum"; cloudLastDevice = ""; cloudLastSentStr = null; cloudPending = null;
           if (cloudTimer) { clearTimeout(cloudTimer); cloudTimer = null; }
@@ -3947,6 +3995,61 @@
           if (lrole === "petugas") state.tab = "keliling";
           else if (lrole === "superadmin") state.tab = "pengaturan";
           render(); window.scrollTo(0, 0);
+        }
+        else if (kind === "server-login") {
+          /* Masuk lewat akun server: peran + nama + PIN divalidasi server
+             terhadap state di Turso. Sukses: state utuh diterapkan seperti
+             hasil unduh cloud, token sesi disimpan, lalu masuk seperti
+             login biasa. PIN tidak pernah masuk ke URL — hanya body POST. */
+          if (ui.serverBusy) return;
+          var sRole = ui.serverRole;
+          if (["petugas", "bendahara", "admin", "superadmin", "warga"].indexOf(sRole) < 0) { ui.serverError = "Peran tidak dikenal."; render(); return; }
+          if (!String(ui.serverNama || "").trim()) { ui.serverError = "Isi dulu nama Anda."; render(); return; }
+          if (!String(ui.serverPin || "").trim()) { ui.serverError = "Isi dulu PIN Anda."; render(); return; }
+          ui.serverBusy = true; ui.serverError = ""; render();
+          fetch(CLOUD_ENDPOINT, {
+            method: "POST", headers: { "Content-Type": "text/plain" },
+            body: JSON.stringify({ action: "auth", peran: sRole, nama: String(ui.serverNama).trim(), pin: String(ui.serverPin).trim() })
+          }).then(function (r) { return r.json(); }).then(function (res) {
+            ui.serverBusy = false;
+            if (!res || !res.ok) {
+              if (res && res.error === "locked") ui.serverError = "Terlalu banyak percobaan salah — coba lagi 15 menit.";
+              else if (res && res.error === "no_account") ui.serverError = "Belum ada data di server — lakukan penyiapan pertama.";
+              else ui.serverError = "Nama, peran, atau PIN salah.";
+              ui.serverPin = ""; render(); return;
+            }
+            /* Sukses: simpan token sesi, terapkan state server seperti
+               hasil unduh cloud, lalu masuk dengan akun itu. */
+            cloud.sessionToken = String(res.sessionToken || "");
+            cloud.serverNama = String(res.nama || ui.serverNama.trim());
+            cloud.lastKnownUpdatedAt = res.updatedAt || null;
+            cloud.lastSyncAt = new Date().toISOString();
+            cloud.lastSyncOk = true;
+            cloudState = "tersinkron";
+            cloudBootPending = false;
+            if (res.deviceId) cloudLastDevice = String(res.deviceId);
+            if (!terapkanStateCloud(res.state)) {
+              cloud.sessionToken = ""; cloud.serverNama = "";
+              cloudState = "belum"; simpanCloudCfg();
+              ui.serverError = "Data dari server tidak valid — perangkat ini tidak diubah.";
+              ui.serverPin = ""; render(); return;
+            }
+            cloudLastSentStr = JSON.stringify(cloudPayload());
+            state.role = String(res.peran || sRole);
+            state.nama = String(res.nama || ui.serverNama.trim());
+            state.userId = res.userId !== undefined && res.userId !== null ? res.userId : null;
+            simpanCloudCfg();
+            ui.serverPin = ""; ui.serverNama = ""; ui.serverError = "";
+            ui.serverLogin = false; ui.loginOpen = false;
+            logAudit("Masuk lewat akun server sebagai " + ROLE_LABEL[state.role] + " (" + state.nama + ").");
+            if (state.role === "petugas") state.tab = "keliling";
+            else if (state.role === "superadmin") state.tab = "pengaturan";
+            render(); window.scrollTo(0, 0);
+          }).catch(function () {
+            ui.serverBusy = false;
+            ui.serverError = "Tidak dapat menghubungi server — periksa koneksi internet lalu coba lagi.";
+            render();
+          });
         }
         else if (kind === "pins") {
           if (!isSuper()) { ui.pinError = "Hanya Super Admin yang bisa mengganti PIN."; render(); return; }

@@ -11,6 +11,17 @@
 //           bila updatedAt yang dikirim lebih lama dari yang tersimpan
 //           (last-write-wins; perangkat yang kalah harus mengunduh dulu)
 //   Tanpa token yang benar -> {ok:false, error:"unauthorized"}
+//   POST {action:"auth", peran, nama, pin}     -> TANPA token sinkron:
+//        memvalidasi nama+peran+PIN terhadap state yang tersimpan di
+//        Turso (pengguna bernama di state.users, atau PIN peran di
+//        state.pins), lalu mengembalikan {ok:true, sessionToken, state,
+//        updatedAt, deviceId, peran, nama, userId}. sessionToken berlaku
+//        30 hari dan bisa dipakai sebagai pengganti SYNC_TOKEN untuk
+//        ping/load/save (hanya lewat body POST — TIDAK PERNAH lewat URL).
+//        PIN/nama salah -> {ok:false, error:"auth_gagal"} (sama untuk
+//        nama salah maupun PIN salah); 5x salah -> terkunci 15 menit
+//        ({ok:false, error:"locked"}); belum ada state tersimpan ->
+//        {ok:false, error:"no_account"}.
 // Validasi state minimal: houses/collections/expenses harus array dan
 // settings harus object — sama seperti validasi backend Drive.
 //
@@ -20,10 +31,15 @@
 //   SYNC_TOKEN          — token sinkronisasi yang diisi pengurus di aplikasi
 //                         (Super Admin > Sinkronisasi Cloud > Token)
 // Seluruh state aplikasi (18 daftar data + seq) disimpan sebagai satu
-// baris JSON di tabel sync_state (lihat schema.sql).
+// baris JSON di tabel sync_state (lihat schema.sql). Sesi server (tabel
+// sessions) dan kunci percobaan gagal (tabel auth_locks) dibuat otomatis
+// per request seperti sync_state. Token sesi hanya disimpan sebagai
+// sha256 — nilai aslinya tidak pernah tersimpan di database dan tidak
+// pernah ditulis ke log.
 
 "use strict";
 
+const crypto = require("crypto");
 const { createClient } = require("@libsql/client");
 
 const SERVICE = "si-rt-rw-sync";
@@ -34,6 +50,18 @@ const SCHEMA_SQL =
   "updated_at TEXT NOT NULL, " +
   "device_id TEXT NOT NULL, " +
   "state_json TEXT NOT NULL)";
+const SCHEMA_SESSIONS_SQL =
+  "CREATE TABLE IF NOT EXISTS sessions (" +
+  "token_hash TEXT PRIMARY KEY, " +
+  "peran TEXT NOT NULL, " +
+  "nama TEXT NOT NULL, " +
+  "user_id TEXT, " +
+  "expires_at TEXT NOT NULL)";
+const SCHEMA_LOCKS_SQL =
+  "CREATE TABLE IF NOT EXISTS auth_locks (" +
+  "kunci TEXT PRIMARY KEY, " +
+  "gagal INTEGER NOT NULL DEFAULT 0, " +
+  "terkunci_sampai TEXT)";
 
 let client = null;
 
@@ -52,6 +80,48 @@ function getClient() {
 
 async function ensureSchema(db) {
   await db.execute(SCHEMA_SQL);
+  await db.execute(SCHEMA_SESSIONS_SQL);
+  await db.execute(SCHEMA_LOCKS_SQL);
+}
+
+function sha256Hex(s) {
+  return crypto.createHash("sha256").update(String(s)).digest("hex");
+}
+
+/* Baca baris state tersimpan. Mengembalikan null bila belum ada baris,
+   {corrupt:true} bila JSON-nya rusak, atau {updatedAt, deviceId, state}. */
+async function loadStateRow(db) {
+  const rs = await db.execute(
+    "SELECT updated_at, device_id, state_json FROM sync_state WHERE id = 1"
+  );
+  if (rs.rows.length === 0) return null;
+  const row = rs.rows[0];
+  let state = null;
+  try {
+    state = JSON.parse(row.state_json);
+  } catch (e) {
+    return { corrupt: true };
+  }
+  return {
+    updatedAt: String(row.updated_at),
+    deviceId: String(row.device_id),
+    state,
+  };
+}
+
+/* Otorisasi ping/load/save. SYNC_TOKEN selalu diterima (GET maupun POST).
+   Token sesi hanya diterima lewat body POST — token sesi tidak boleh
+   masuk ke URL (query string), jadi GET hanya mengenal SYNC_TOKEN. */
+async function authorize(db, token, syncToken, allowSession) {
+  if (!token) return false;
+  if (token === syncToken) return true;
+  if (!allowSession) return false;
+  const now = new Date().toISOString();
+  const rs = await db.execute({
+    sql: "SELECT token_hash FROM sessions WHERE token_hash = ? AND expires_at > ?",
+    args: [sha256Hex(token), now],
+  });
+  return rs.rows.length > 0;
 }
 
 function validState(s) {
@@ -113,10 +183,8 @@ async function handlePing(res) {
 }
 
 async function handleLoad(db, res) {
-  const rs = await db.execute(
-    "SELECT updated_at, device_id, state_json FROM sync_state WHERE id = 1"
-  );
-  if (rs.rows.length === 0) {
+  const row = await loadStateRow(db);
+  if (row === null) {
     send(res, 200, {
       ok: true,
       exists: false,
@@ -126,20 +194,130 @@ async function handleLoad(db, res) {
     });
     return;
   }
-  const row = rs.rows[0];
-  let state = null;
-  try {
-    state = JSON.parse(row.state_json);
-  } catch (e) {
+  if (row.corrupt) {
     send(res, 200, { ok: false, error: "server_error", message: "state tersimpan rusak" });
     return;
   }
   send(res, 200, {
     ok: true,
     exists: true,
-    updatedAt: String(row.updated_at),
-    deviceId: String(row.device_id),
+    updatedAt: row.updatedAt,
+    deviceId: row.deviceId,
+    state: row.state,
+  });
+}
+
+/* Masuk dengan akun server (peran + nama + PIN yang tersimpan di Turso).
+   Dipanggil TANPA token sinkron. Mengembalikan state utuh + sessionToken
+   bila cocok. Pesan gagal sengaja sama untuk nama salah maupun PIN salah,
+   dan tidak pernah mengembalikan daftar pengguna/PIN. */
+async function handleAuth(db, res, body) {
+  if (!body || body.__badJson) {
+    send(res, 400, { ok: false, error: "bad_state" });
+    return;
+  }
+  const peran = String(body.peran || "").trim();
+  const nama = String(body.nama || "").trim();
+  const pin = String(body.pin || "").trim();
+  if (
+    ["petugas", "bendahara", "admin", "superadmin", "warga"].indexOf(peran) < 0 ||
+    !nama ||
+    !pin
+  ) {
+    send(res, 200, { ok: false, error: "auth_gagal" });
+    return;
+  }
+  const now = new Date().toISOString();
+  // Hapus sesi kedaluwarsa secara oportunistik.
+  try {
+    await db.execute({
+      sql: "DELETE FROM sessions WHERE expires_at <= ?",
+      args: [now],
+    });
+  } catch (e) {
+    /* abaikan — pembersihan oportunistik, bukan syarat masuk */
+  }
+  const row = await loadStateRow(db);
+  if (row === null) {
+    send(res, 200, { ok: false, error: "no_account" });
+    return;
+  }
+  if (row.corrupt) {
+    send(res, 200, { ok: false, error: "server_error" });
+    return;
+  }
+  const state = row.state || {};
+  // Pengguna bernama aktif dengan peran dan nama yang sama (nama tidak
+  // case-sensitive). Bila tidak ada, jatuh ke akun bawaan peran.
+  const namaKecil = nama.toLowerCase();
+  let named = null;
+  const users = Array.isArray(state.users) ? state.users : [];
+  users.forEach(function (u) {
+    if (
+      !named &&
+      u &&
+      u.peran === peran &&
+      u.aktif !== false &&
+      String(u.nama || "").trim().toLowerCase() === namaKecil
+    ) {
+      named = u;
+    }
+  });
+  // Kunci percobaan gagal: nama untuk pengguna bernama, peran|* untuk akun bawaan.
+  const kunci = named ? peran + "|" + namaKecil : peran + "|*";
+  const lock = await db.execute({
+    sql: "SELECT gagal, terkunci_sampai FROM auth_locks WHERE kunci = ?",
+    args: [kunci],
+  });
+  if (lock.rows.length > 0) {
+    const sampai = String(lock.rows[0].terkunci_sampai || "");
+    if (sampai && sampai > now) {
+      send(res, 200, { ok: false, error: "locked" });
+      return;
+    }
+  }
+  let cocok = false;
+  let userId = null;
+  let namaSesi = nama;
+  if (named) {
+    cocok = String(named.pin || "") !== "" && String(named.pin || "") === pin;
+    userId = named.id !== undefined && named.id !== null ? String(named.id) : null;
+    namaSesi = String(named.nama || nama);
+  } else {
+    const pinPeran = state.pins && state.pins[peran];
+    cocok = !!pinPeran && String(pinPeran) === pin;
+  }
+  if (!cocok) {
+    // Gagal: tambah hitungan; 5x gagal -> kunci 15 menit. Satu pernyataan
+    // atomik (tidak ada jendela balapan check-then-write).
+    const sampaiBaru = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+    await db.execute({
+      sql:
+        "INSERT INTO auth_locks (kunci, gagal, terkunci_sampai) VALUES (?, 1, NULL) " +
+        "ON CONFLICT(kunci) DO UPDATE SET gagal = auth_locks.gagal + 1, " +
+        "terkunci_sampai = CASE WHEN auth_locks.gagal + 1 >= 5 THEN ? ELSE auth_locks.terkunci_sampai END",
+      args: [kunci, sampaiBaru],
+    });
+    send(res, 200, { ok: false, error: "auth_gagal" });
+    return;
+  }
+  // Sukses: hapus kunci percobaan, buat token sesi 30 hari.
+  await db.execute({ sql: "DELETE FROM auth_locks WHERE kunci = ?", args: [kunci] });
+  const tokenSesi = crypto.randomBytes(32).toString("hex");
+  const exp = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+  await db.execute({
+    sql: "INSERT INTO sessions (token_hash, peran, nama, user_id, expires_at) VALUES (?, ?, ?, ?, ?)",
+    args: [sha256Hex(tokenSesi), peran, namaSesi, userId, exp],
+  });
+  send(res, 200, {
+    ok: true,
+    sessionToken: tokenSesi,
     state,
+    updatedAt: row.updatedAt,
+    deviceId: row.deviceId,
+    peran,
+    nama: namaSesi,
+    userId,
   });
 }
 
@@ -199,7 +377,21 @@ module.exports = async function handler(req, res) {
       return;
     }
 
-    // Token sinkronisasi klien — dicek SEBELUM aksi apa pun.
+    // Aksi auth tidak memakai token sinkron — dicek SEBELUM pemeriksaan
+    // SYNC_TOKEN, supaya masuk dengan akun server tetap bisa walau
+    // SYNC_TOKEN belum dikonfigurasi di server.
+    const q = getQuery(req);
+    const body = req.method === "POST" ? readBody(req) : null;
+
+    const db = getClient();
+    await ensureSchema(db);
+
+    if (req.method === "POST" && body && body.action === "auth") {
+      await handleAuth(db, res, body);
+      return;
+    }
+
+    // Token sinkronisasi klien — dicek SEBELUM aksi ping/load/save.
     const syncToken = process.env.SYNC_TOKEN;
     if (!syncToken) {
       send(res, 500, {
@@ -209,16 +401,13 @@ module.exports = async function handler(req, res) {
       });
       return;
     }
-    const q = getQuery(req);
-    const body = req.method === "POST" ? readBody(req) : null;
     const token = req.method === "POST" ? (body && body.token) || "" : q.token || "";
-    if (String(token) !== syncToken) {
+    // Token sesi hanya diterima lewat body POST (tidak pernah lewat URL).
+    const okAuth = await authorize(db, String(token), syncToken, req.method === "POST");
+    if (!okAuth) {
       send(res, 401, { ok: false, error: "unauthorized" });
       return;
     }
-
-    const db = getClient();
-    await ensureSchema(db);
 
     if (req.method === "GET") {
       const action = String(q.action || "ping");
@@ -236,6 +425,12 @@ module.exports = async function handler(req, res) {
       const action = String((body && body.action) || "");
       if (action === "save") {
         await handleSave(db, res, body);
+      } else if (action === "load") {
+        // Muat lewat POST dipakai perangkat yang masuk lewat akun server,
+        // supaya token sesi tidak masuk ke URL.
+        await handleLoad(db, res);
+      } else if (action === "ping") {
+        await handlePing(res);
       } else {
         send(res, 400, { ok: false, error: "unknown_action" });
       }
