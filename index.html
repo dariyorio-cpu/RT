@@ -677,6 +677,56 @@
       .access-table th, .access-table td { border: 1px solid var(--border); padding: 0.45rem 0.5rem; text-align: left; vertical-align: top; }
       .access-table th { background: var(--surface2); font-weight: 700; }
       .access-table td.c, .access-table th.c { text-align: center; }
+
+      /* ---------- Tabel data premium (Data Rumah & Profil Warga) ---------- */
+      .tbl-wrap {
+        overflow: auto; max-height: 34rem;
+        border: 1px solid var(--border); border-radius: 0.875rem;
+        background: var(--surface); box-shadow: var(--shadow);
+      }
+      .data-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 0.8125rem; min-width: 58rem; }
+      .data-table-profil { min-width: 76rem; }
+      .data-table th, .data-table td {
+        padding: 0.55rem 0.75rem; text-align: left; vertical-align: middle;
+        border-bottom: 1px solid var(--border);
+      }
+      .data-table thead th {
+        position: sticky; top: 0; z-index: 3;
+        background: linear-gradient(180deg, #0b6b4e 0%, #074433 100%);
+        color: #fff; font-size: 0.6875rem; font-weight: 800;
+        text-transform: uppercase; letter-spacing: 0.05em; white-space: nowrap;
+        border-bottom: 2px solid #d9a83f;
+      }
+      .data-table tbody tr:nth-child(even) td { background: var(--surface2); }
+      .data-table tbody tr:hover td { background: var(--accent-soft); }
+      .data-table tbody tr:last-child td { border-bottom: 0; }
+      .data-table td.num, .data-table th.num { text-align: right; font-variant-numeric: tabular-nums; }
+      .data-table td.c, .data-table th.c { text-align: center; }
+      .data-table td.nowrap, .data-table th.nowrap { white-space: nowrap; }
+      .data-table td.cell-addr { max-width: 15rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .data-table td.cell-mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.75rem; }
+      .data-table tbody tr:not(.tbl-detail) td:first-child, .data-table thead th:first-child {
+        position: sticky; left: 0; z-index: 1;
+      }
+      .data-table thead th:first-child { z-index: 4; }
+      .data-table tbody tr:nth-child(odd):not(.tbl-detail) td:first-child { background: var(--surface); }
+      .data-table tbody tr:nth-child(even):not(.tbl-detail) td:first-child { background: var(--surface2); }
+      .data-table tbody tr:hover:not(.tbl-detail) td:first-child { background: var(--accent-soft); }
+      .data-table tbody tr:not(.tbl-detail) td:first-child { box-shadow: 1px 0 0 var(--border); }
+      .data-table thead th:first-child { box-shadow: 1px 0 0 rgba(255, 255, 255, 0.18); }
+      .tbl-actions { display: flex; gap: 0.375rem; flex-wrap: wrap; }
+      .tbl-actions .btn { padding: 0.3rem 0.6rem; font-size: 0.75rem; min-height: 0; }
+      .data-table tr.tbl-detail td {
+        background: var(--surface2); font-size: 0.8125rem; color: var(--dim);
+      }
+      .data-table tr.tbl-detail .card { margin: 0; box-shadow: none; }
+      .tbl-detail-label { font-weight: 700; color: var(--text); }
+      .data-table tr.tbl-detail .s { margin: 0.125rem 0; }
+      @media (max-width: 640px) {
+        .data-table { min-width: 52rem; }
+        .data-table-profil { min-width: 68rem; }
+        .tbl-wrap { max-height: 28rem; border-radius: 0.75rem; }
+      }
       .lock-note {
         background: var(--surface2); border: 1px solid var(--border); border-radius: 0.875rem;
         padding: 1rem; text-align: center;
@@ -2488,61 +2538,70 @@
           html += '<p class="empty">' + (state.houses.length === 0
             ? "Belum ada rumah terdaftar."
             : "Tidak ada rumah yang cocok dengan pencarian.") + "</p>";
-        }
-        html += '<div class="list">';
-        filtered.forEach(function (h) {
-          var det = [];
-          if (h.hp) det.push(h.hp);
-          if (h.alamat) det.push(h.alamat);
-          var jiwa = [];
-          if (h.jumlahPenghuni != null && h.jumlahPenghuni !== "") jiwa.push(h.jumlahPenghuni + " jiwa");
-          if (h.jumlahKK != null && h.jumlahKK !== "") jiwa.push(h.jumlahKK + " KK");
-          if (jiwa.length) det.push(jiwa.join(" · "));
-          var rtrw = [];
-          if (h.rt) rtrw.push("RT " + h.rt);
-          if (h.rw) rtrw.push("RW " + h.rw);
-          if (rtrw.length) det.push(rtrw.join(" · "));
-          if (h.statusHunian) det.push(h.statusHunian);
-          if (h.tanggalDaftar) det.push("Terdaftar " + fmtSingkat(h.tanggalDaftar));
-          html += '<div class="row-item"><div><p class="t">Rumah ' + esc(h.nomor) +
-            (h.blok ? ' <span style="font-weight:600;color:var(--dim)">· Blok ' + esc(h.blok) + "</span>" : "") +
-            '</p><p class="s" style="font-size:.875rem">' + esc(h.namaPenghuni) + "</p>" +
-            (det.length ? '<p class="s">' + det.map(esc).join(" · ") + "</p>" : "") +
-            (h.catatan ? '<p class="s">' + esc(h.catatan) + "</p>" : "") +
-            '</div><div style="display:flex;align-items:center;gap:.5rem">' +
-            (h.status === "aktif" ? badge("green", "Aktif") : h.status === "kosong" ? badge("gray", "Kosong") : badge("red", "Nonaktif")) +
-            (canWrite ? '<button type="button" class="btn btn-ghost" data-act="house-edit" data-id="' + h.id + '">Ubah</button>' : "") +
-            (canWrite && h.status !== "nonaktif" ? '<button type="button" class="btn btn-danger-ghost" data-act="house-arsip-open" data-id="' + h.id + '">Arsipkan</button>' : "") +
-            (canWrite && h.status === "nonaktif" ? '<button type="button" class="btn btn-primary" data-act="house-aktifkan" data-id="' + h.id + '">Aktifkan</button>' : "") +
-            (canWrite ? '<button type="button" class="btn btn-danger-ghost" data-act="house-hapus-open" data-id="' + h.id + '">Hapus</button>' : "") +
-            "</div></div>";
-          if (canWrite && ui.houseArsipFor === h.id) {
-            html += '<form class="card" data-form="house-arsip" data-id="' + h.id + '" style="padding:.75rem 1rem">' +
-              '<label class="lbl" for="arsip-rumah-' + h.id + '">Alasan mengarsipkan rumah ' + esc(h.nomor) + '</label>' +
-              '<input id="arsip-rumah-' + h.id + '" type="text" class="inp" placeholder="mis. penghuni pindah, rumah dijual" value="' + esc(ui.houseArsipReason) + '" data-bind="houseArsipReason">' +
-              '<div class="actions-row"><button type="submit" class="btn btn-danger">Arsipkan rumah</button>' +
-              '<button type="button" class="btn btn-ghost" data-act="house-arsip-close">Kembali</button></div>' +
-              '<p class="hint">Rumah tidak dihapus — statusnya menjadi Nonaktif, hilang dari daftar keliling, dan alasannya tercatat di audit log. Bisa diaktifkan lagi lewat tombol Aktifkan di daftar rumah.</p></form>';
-          }
-          if (canWrite && ui.houseHapusFor === h.id) {
-            var rwH = houseRiwayat(h);
-            if (rwH.punya) {
-              html += '<div class="card" style="padding:.75rem 1rem;border-color:var(--danger)">' +
-                '<p style="margin:0 0 .25rem;font-weight:700">Rumah ' + esc(h.nomor) + ' tidak bisa dihapus permanen</p>' +
-                '<p class="s" style="margin:0 0 .5rem">Rumah ini masih punya riwayat: ' + esc(rwH.rincian.join(", ")) + '. Menghapusnya akan merusak catatan kas dan riwayat warga yang merujuk rumah ini.</p>' +
-                '<div class="actions-row"><button type="button" class="btn btn-danger" data-act="house-hapus-arsip" data-id="' + h.id + '">Arsipkan sebagai gantinya</button>' +
-                '<button type="button" class="btn btn-ghost" data-act="house-hapus-close">Tutup</button></div>' +
-                '<p class="hint">Mengarsipkan mengubah status menjadi Nonaktif — rumah hilang dari daftar keliling, tetapi seluruh riwayatnya tetap utuh dan tetap bisa dilihat di laporan.</p></div>';
-            } else {
-              html += '<form class="card" data-form="house-hapus" data-id="' + h.id + '" style="padding:.75rem 1rem;border-color:var(--danger)">' +
-                '<p style="margin:0 0 .25rem;font-weight:700">Hapus rumah ' + esc(h.nomor) + ' (' + esc(h.namaPenghuni) + ')?</p>' +
-                '<p class="s" style="margin:0 0 .5rem">Rumah ini belum punya riwayat setoran jimpitan maupun warga terhubung, jadi aman dihapus permanen. Tindakan ini tidak bisa dibatalkan.</p>' +
-                '<div class="actions-row"><button type="submit" class="btn btn-danger">Ya, hapus permanen</button>' +
-                '<button type="button" class="btn btn-ghost" data-act="house-hapus-close">Batal</button></div></form>';
+        } else {
+          var rAktif = filtered.filter(function (h) { return h.status === "aktif"; }).length;
+          var rKosong = filtered.filter(function (h) { return h.status === "kosong"; }).length;
+          var rNonaktif = filtered.filter(function (h) { return h.status === "nonaktif"; }).length;
+          html += '<p class="sub" style="margin-top:.25rem">Menampilkan ' + filtered.length + ' rumah \u00b7 ' + rAktif + ' aktif \u00b7 ' + rKosong + ' kosong \u00b7 ' + rNonaktif + ' nonaktif</p>';
+          html += '<div class="tbl-wrap" style="margin-top:.5rem"><table class="data-table"><thead><tr>' +
+            '<th>No. Rumah</th><th>Kepala Keluarga</th><th>Blok</th><th>Alamat</th><th>RT/RW</th><th class="num">Jiwa</th><th class="num">KK</th><th>HP/WA</th><th>Status Hunian</th><th>Status</th><th>Terdaftar</th><th>Aksi</th>' +
+            '</tr></thead><tbody>';
+          filtered.forEach(function (h) {
+            var rtrw = ((h.rt ? "RT " + h.rt : "") + (h.rt && h.rw ? " / " : "") + (h.rw ? "RW " + h.rw : "")) || "-";
+            html += '<tr><td class="nowrap"><strong>Rumah ' + esc(h.nomor) + '</strong></td>' +
+              '<td><strong>' + esc(h.namaPenghuni) + '</strong></td>' +
+              '<td>' + esc(h.blok || "-") + '</td>' +
+              '<td class="cell-addr" title="' + esc(h.alamat || "") + '">' + esc(h.alamat || "-") + '</td>' +
+              '<td class="nowrap">' + esc(rtrw) + '</td>' +
+              '<td class="num">' + (h.jumlahPenghuni != null && h.jumlahPenghuni !== "" ? esc(h.jumlahPenghuni) : "-") + '</td>' +
+              '<td class="num">' + (h.jumlahKK != null && h.jumlahKK !== "" ? esc(h.jumlahKK) : "-") + '</td>' +
+              '<td class="nowrap">' + esc(h.hp || "-") + '</td>' +
+              '<td>' + esc(h.statusHunian || "-") + '</td>' +
+              '<td>' + (h.status === "aktif" ? badge("green", "Aktif") : h.status === "kosong" ? badge("gray", "Kosong") : badge("red", "Nonaktif")) + '</td>' +
+              '<td class="nowrap">' + esc(h.tanggalDaftar ? fmtSingkat(h.tanggalDaftar) : "-") + '</td>' +
+              '<td><div class="tbl-actions">' +
+              (canWrite ? '<button type="button" class="btn btn-ghost" data-act="house-edit" data-id="' + h.id + '">Ubah</button>' : "") +
+              (canWrite && h.status !== "nonaktif" ? '<button type="button" class="btn btn-danger-ghost" data-act="house-arsip-open" data-id="' + h.id + '">Arsipkan</button>' : "") +
+              (canWrite && h.status === "nonaktif" ? '<button type="button" class="btn btn-primary" data-act="house-aktifkan" data-id="' + h.id + '">Aktifkan</button>' : "") +
+              (canWrite ? '<button type="button" class="btn btn-danger-ghost" data-act="house-hapus-open" data-id="' + h.id + '">Hapus</button>' : "") +
+              '</div></td></tr>';
+            if (h.catatan) {
+              html += '<tr class="tbl-detail"><td colspan="12"><span class="tbl-detail-label">Catatan:</span> ' + esc(h.catatan) + '</td></tr>';
+            }
+          });
+          html += '</tbody></table></div>';
+          if (canWrite && ui.houseArsipFor) {
+            var hArsip = houseById(ui.houseArsipFor);
+            if (hArsip) {
+              html += '<form class="card" data-form="house-arsip" data-id="' + hArsip.id + '" style="padding:.75rem 1rem;margin-top:.75rem">' +
+                '<label class="lbl" for="arsip-rumah-' + hArsip.id + '">Alasan mengarsipkan rumah ' + esc(hArsip.nomor) + '</label>' +
+                '<input id="arsip-rumah-' + hArsip.id + '" type="text" class="inp" placeholder="mis. penghuni pindah, rumah dijual" value="' + esc(ui.houseArsipReason) + '" data-bind="houseArsipReason">' +
+                '<div class="actions-row"><button type="submit" class="btn btn-danger">Arsipkan rumah</button>' +
+                '<button type="button" class="btn btn-ghost" data-act="house-arsip-close">Kembali</button></div>' +
+                '<p class="hint">Rumah tidak dihapus \u2014 statusnya menjadi Nonaktif, hilang dari daftar keliling, dan alasannya tercatat di audit log. Bisa diaktifkan lagi lewat tombol Aktifkan di daftar rumah.</p></form>';
             }
           }
-        });
-        html += "</div>";
+          if (canWrite && ui.houseHapusFor) {
+            var hHapus = houseById(ui.houseHapusFor);
+            if (hHapus) {
+              var rwH = houseRiwayat(hHapus);
+              if (rwH.punya) {
+                html += '<div class="card" style="padding:.75rem 1rem;border-color:var(--danger);margin-top:.75rem">' +
+                  '<p style="margin:0 0 .25rem;font-weight:700">Rumah ' + esc(hHapus.nomor) + ' tidak bisa dihapus permanen</p>' +
+                  '<p class="s" style="margin:0 0 .5rem">Rumah ini masih punya riwayat: ' + esc(rwH.rincian.join(", ")) + '. Menghapusnya akan merusak catatan kas dan riwayat warga yang merujuk rumah ini.</p>' +
+                  '<div class="actions-row"><button type="button" class="btn btn-danger" data-act="house-hapus-arsip" data-id="' + hHapus.id + '">Arsipkan sebagai gantinya</button>' +
+                  '<button type="button" class="btn btn-ghost" data-act="house-hapus-close">Tutup</button></div>' +
+                  '<p class="hint">Mengarsipkan mengubah status menjadi Nonaktif \u2014 rumah hilang dari daftar keliling, tetapi seluruh riwayatnya tetap utuh dan tetap bisa dilihat di laporan.</p></div>';
+              } else {
+                html += '<form class="card" data-form="house-hapus" data-id="' + hHapus.id + '" style="padding:.75rem 1rem;border-color:var(--danger);margin-top:.75rem">' +
+                  '<p style="margin:0 0 .25rem;font-weight:700">Hapus rumah ' + esc(hHapus.nomor) + ' (' + esc(hHapus.namaPenghuni) + ')?</p>' +
+                  '<p class="s" style="margin:0 0 .5rem">Rumah ini belum punya riwayat setoran jimpitan maupun warga terhubung, jadi aman dihapus permanen. Tindakan ini tidak bisa dibatalkan.</p>' +
+                  '<div class="actions-row"><button type="submit" class="btn btn-danger">Ya, hapus permanen</button>' +
+                  '<button type="button" class="btn btn-ghost" data-act="house-hapus-close">Batal</button></div></form>';
+              }
+            }
+          }
+        }
         if (!canWrite) {
           html += '<p class="sub">Mode lihat saja untuk peran ' + esc(ROLE_LABEL[state.role]) + " — tambah/ubah data rumah hanya oleh Admin, Bendahara, dan Super Admin.</p>";
         }
@@ -2899,31 +2958,45 @@
             if (!pq) return true;
             return p.nama.toLowerCase().indexOf(pq) >= 0 || String(p.nik || "").indexOf(pq) >= 0 || String(p.noKK || "").indexOf(pq) >= 0;
           }).sort(function (a, b) { return a.nama.localeCompare(b.nama, "id"); });
-          html += '<div class="list" style="margin-top:.75rem">';
-          if (plist.length === 0) html += '<p class="empty">Belum ada profil warga pada tampilan ini. Profil warga adalah registry per jiwa (satu rumah bisa berisi banyak jiwa dari satu atau beberapa KK).</p>';
-          plist.forEach(function (p) {
-            var h = p.houseId ? houseById(p.houseId) : null;
-            var umur = umurDari(p.tanggalLahir);
-            var st = p.statusTinggal || "aktif";
-            html += '<div class="card" style="padding:.75rem 1rem"><div style="display:flex;justify-content:space-between;gap:.75rem;align-items:flex-start"><div>' +
-              '<p class="t" style="font-size:.9375rem;font-weight:700;margin:0">' + esc(p.nama) + '</p>' +
-              '<p class="s">' + [p.hubungan, h ? "Rumah " + h.nomor : "", umur != null ? umur + " th" : "", p.pekerjaan, p.noHp].filter(Boolean).map(esc).join(" · ") + '</p>' +
-              '<p class="s">KK ' + esc(p.noKK || "-") + " · NIK " + esc(p.nik || "-") +
-              (p.agama ? " · " + esc(p.agama) : "") + (p.statusKawin ? " · " + esc(p.statusKawin) : "") +
-              (p.pendidikan ? " · " + esc(p.pendidikan) : "") + (p.golonganDarah ? " · Gol. " + esc(p.golonganDarah) : "") + "</p></div>" +
-              '<div style="display:flex;gap:.375rem;flex-wrap:wrap;justify-content:flex-end">' +
-              statusBadge(st === "aktif" ? "Aktif" : st === "pindah" ? "Pindah" : "Meninggal") +
-              (manage ? '<button type="button" class="btn btn-ghost" data-act="pf-edit" data-id="' + p.id + '">Ubah</button>' : "") +
-              "</div></div>";
-            if (p.riwayat && p.riwayat.length) {
-              html += '<div style="margin-top:.5rem">' + p.riwayat.slice().reverse().map(function (r) {
-                return '<p class="s" style="margin:0">Riwayat: <b>' + esc(r.status) + "</b> · " + esc(fmtSingkat(r.tanggal)) +
-                  (r.alasan ? " · " + esc(r.alasan) : "") + (r.oleh ? " · dicatat " + esc(r.oleh) : "") + "</p>";
-              }).join("") + "</div>";
-            }
-            html += "</div>";
-          });
-          html += "</div>";
+          if (plist.length === 0) {
+            html += '<p class="empty">Belum ada profil warga pada tampilan ini. Profil warga adalah registry per jiwa (satu rumah bisa berisi banyak jiwa dari satu atau beberapa KK).</p>';
+          } else {
+            var pfAktif = plist.filter(function (p) { return (p.statusTinggal || "aktif") === "aktif"; }).length;
+            var pfPindah = plist.filter(function (p) { return (p.statusTinggal || "aktif") === "pindah"; }).length;
+            var pfMeninggal = plist.filter(function (p) { return (p.statusTinggal || "aktif") === "meninggal"; }).length;
+            html += '<p class="sub" style="margin-top:.75rem">Menampilkan ' + plist.length + ' jiwa \u00b7 ' + pfAktif + ' aktif \u00b7 ' + pfPindah + ' pindah \u00b7 ' + pfMeninggal + ' meninggal</p>';
+            html += '<div class="tbl-wrap" style="margin-top:.5rem"><table class="data-table data-table-profil"><thead><tr>' +
+              '<th>Nama</th><th>NIK</th><th>No KK</th><th>Hubungan</th><th>Rumah</th><th>Pekerjaan</th><th>Pendidikan</th><th class="c">Gol. Darah</th><th>Tgl Lahir</th><th>Agama</th><th>Status Kawin</th><th>HP/WA</th><th>Status</th><th>Aksi</th>' +
+              '</tr></thead><tbody>';
+            plist.forEach(function (p) {
+              var h = p.houseId ? houseById(p.houseId) : null;
+              var umur = umurDari(p.tanggalLahir);
+              var st = p.statusTinggal || "aktif";
+              html += '<tr><td><strong>' + esc(p.nama) + '</strong></td>' +
+                '<td class="cell-mono nowrap">' + esc(p.nik || "-") + '</td>' +
+                '<td class="cell-mono nowrap">' + esc(p.noKK || "-") + '</td>' +
+                '<td>' + esc(p.hubungan || "-") + '</td>' +
+                '<td class="nowrap">' + (h ? "Rumah " + esc(h.nomor) : "-") + '</td>' +
+                '<td>' + esc(p.pekerjaan || "-") + '</td>' +
+                '<td>' + esc(p.pendidikan || "-") + '</td>' +
+                '<td class="c">' + esc(p.golonganDarah || "-") + '</td>' +
+                '<td class="nowrap">' + (p.tanggalLahir ? esc(fmtSingkat(p.tanggalLahir)) + (umur != null ? " (" + umur + " th)" : "") : "-") + '</td>' +
+                '<td>' + esc(p.agama || "-") + '</td>' +
+                '<td>' + esc(p.statusKawin || "-") + '</td>' +
+                '<td class="nowrap">' + esc(p.noHp || "-") + '</td>' +
+                '<td>' + statusBadge(st === "aktif" ? "Aktif" : st === "pindah" ? "Pindah" : "Meninggal") + '</td>' +
+                '<td><div class="tbl-actions">' +
+                (manage ? '<button type="button" class="btn btn-ghost" data-act="pf-edit" data-id="' + p.id + '">Ubah</button>' : "") +
+                '</div></td></tr>';
+              if (p.riwayat && p.riwayat.length) {
+                html += '<tr class="tbl-detail"><td colspan="14">' + p.riwayat.slice().reverse().map(function (r) {
+                  return '<p class="s" style="margin:0">Riwayat: <b>' + esc(r.status) + "</b> \u00b7 " + esc(fmtSingkat(r.tanggal)) +
+                    (r.alasan ? " \u00b7 " + esc(r.alasan) : "") + (r.oleh ? " \u00b7 dicatat " + esc(r.oleh) : "") + "</p>";
+                }).join("") + '</td></tr>';
+              }
+            });
+            html += '</tbody></table></div>';
+          }
         }
 
         /* ---- Warga & KK ---- */
