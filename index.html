@@ -773,7 +773,7 @@
           rtList: [],                /* dukungan RW: [{nama, nominalJimpitan, nominalIuran}] — tiap RT bisa beda iuran */
           pengurus: []               /* [{nama, jabatan, noHp, foto}] — tampil di halaman depan */
         },
-        houses: [],                /* {id, nomor, namaPenghuni, blok, status, catatan} */
+        houses: [],                /* {id, nomor, namaPenghuni, blok, status, catatan, alamat, rw, jumlahPenghuni, jumlahKK, hp, statusHunian, tanggalDaftar, rt} */
         collections: [],           /* {id, houseId, tanggal, total, jimpitan, kelebihan, petugas, status, diverifikasiOleh, alasanBatal} */
         expenses: [],              /* {id, tanggal, keperluan, jumlah, dicatatOleh, keterangan, status, alasanBatal} */
         warga: [],                 /* {id, nama, alamat, noHp, status} — data KK untuk iuran bulanan */
@@ -801,6 +801,7 @@
         error: "", namaError: "",
         houseForm: null,           /* null | {editingId} */
         fNomor: "", fPenghuni: "", fBlok: "", fStatus: "aktif", fCatatan: "", fError: "",
+        fAlamat: "", fRw: "", fJmlPenghuni: "", fJmlKK: "", fHp: "", fStatusHunian: "Milik Sendiri",
         cari: "",
         sNama: null, sWilayah: null, sNominal: null, sIuran: null, sError: "", sDone: false,
         eTgl: todayStr(), eKeperluan: "", eJumlah: "", eKet: "", eError: "",
@@ -1575,7 +1576,8 @@
       }
       function colRowHouse(c) {
         var h = houseById(c.houseId);
-        return h ? ("Rumah " + h.nomor + " · " + h.namaPenghuni) : "(rumah terhapus)";
+        if (!h) return "(rumah terhapus)";
+        return "Rumah " + h.nomor + " · " + h.namaPenghuni + (h.hp ? " · " + h.hp : "");
       }
 
       /* Menu sidebar admin (desktop) — dikelompokkan menurut fungsi
@@ -2131,8 +2133,12 @@
           '<button type="button" class="btn btn-ghost" data-act="shift-date" data-days="1" aria-label="Hari berikutnya">›</button></div>' +
           '<p class="hint">' + esc(fmtTanggal(ui.tanggal)) + "</p></div>";
         if (canWrite) {
-          html += '<div><label class="lbl" for="nama-petugas">' + "Nama " + ROLE_LABEL[state.role].toLowerCase() + " yang bertugas</label>" +
-            '<input id="nama-petugas" type="text" class="inp" placeholder="mis. Pak Budi" value="' + esc(state.nama) + '" data-bind="nama">' +
+          /* Nama pencatat melekat pada akun yang masuk — baca-saja, tidak bisa diketik. */
+          html += '<div><p class="lbl" style="margin-bottom:.25rem">Dicatat oleh</p>' +
+            '<p style="margin:0;font-weight:700;display:flex;align-items:center;gap:.375rem">' +
+            '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>' +
+            esc(state.nama || "—") + ' <span style="font-weight:600;color:var(--dim)">· ' + esc(ROLE_LABEL[state.role]) + '</span></p>' +
+            '<p class="hint" style="margin-top:.25rem">Nama mengikuti akun yang masuk — tidak bisa diubah di form.</p>' +
             (ui.namaError ? '<p class="field-err">' + esc(ui.namaError) + "</p>" : "") + "</div>";
         }
         html += "</div>";
@@ -2152,7 +2158,7 @@
           html += '<div class="card"><div style="display:flex;align-items:flex-start;justify-content:space-between;gap:.75rem"><div>' +
             '<p style="margin:0;font-weight:700">Rumah ' + esc(h.nomor) +
             (h.blok ? ' <span style="font-weight:600;color:var(--dim)">· Blok ' + esc(h.blok) + "</span>" : "") + "</p>" +
-            '<p class="s" style="font-size:.875rem;color:var(--dim);margin:0">' + esc(h.namaPenghuni) + "</p>" +
+            '<p class="s" style="font-size:.875rem;color:var(--dim);margin:0">' + esc(h.namaPenghuni) + (h.hp ? " · " + esc(h.hp) : "") + "</p>" +
             (h.status === "kosong" ? badge("gray", "Rumah kosong") : "") +
             "</div>";
           if (c) {
@@ -2217,7 +2223,9 @@
           if (!q) return true;
           return h.nomor.toLowerCase().indexOf(q) >= 0 ||
             h.namaPenghuni.toLowerCase().indexOf(q) >= 0 ||
-            (h.blok || "").toLowerCase().indexOf(q) >= 0;
+            (h.blok || "").toLowerCase().indexOf(q) >= 0 ||
+            (h.hp || "").toLowerCase().indexOf(q) >= 0 ||
+            (h.alamat || "").toLowerCase().indexOf(q) >= 0;
         });
         var html = '<div class="stack">';
         html += '<div style="display:flex;flex-wrap:wrap;align-items:flex-start;justify-content:space-between;gap:.75rem"><div>' +
@@ -2234,10 +2242,12 @@
             (ed ? "Ubah rumah" : "Tambah rumah baru") + '</p><div class="grid2">' +
             '<div><label class="lbl" for="f-nomor">Nomor rumah</label>' +
             '<input id="f-nomor" type="text" class="inp" placeholder="mis. 12 atau 12A" value="' + esc(ui.fNomor) + '" data-bind="fNomor"></div>' +
-            '<div><label class="lbl" for="f-penghuni">Nama penghuni / kepala keluarga</label>' +
+            '<div><label class="lbl" for="f-penghuni">Nama Kepala Keluarga</label>' +
             '<input id="f-penghuni" type="text" class="inp" placeholder="mis. Keluarga Pak Slamet" value="' + esc(ui.fPenghuni) + '" data-bind="fPenghuni"></div>' +
             '<div><label class="lbl" for="f-blok">Blok / gang (boleh kosong)</label>' +
             '<input id="f-blok" type="text" class="inp" value="' + esc(ui.fBlok) + '" data-bind="fBlok"></div>' +
+            '<div style="grid-column:1/-1"><label class="lbl" for="f-alamat">Alamat lengkap (boleh kosong)</label>' +
+            '<input id="f-alamat" type="text" class="inp" placeholder="mis. Jl. Merdeka No. 12, Semarang" value="' + esc(ui.fAlamat) + '" data-bind="fAlamat"></div>' +
             ((state.settings.rtList || []).length > 0
               ? '<div><label class="lbl" for="f-rt">RT (dukungan RW)</label>' +
                 '<select id="f-rt" class="inp" data-bind-sel="fRt"><option value="">— RT utama —</option>' +
@@ -2246,7 +2256,21 @@
                     " (jimpitan " + rp(r.nominalJimpitan) + " · iuran " + rp(r.nominalIuran) + ")</option>";
                 }).join("") + "</select>" +
                 '<p class="hint">Rumah di RT ini memakai nominal jimpitan &amp; iuran RT tersebut.</p></div>'
-              : "") +
+              : '<div><label class="lbl" for="f-rt">RT (boleh kosong)</label>' +
+                '<input id="f-rt" type="text" class="inp" placeholder="mis. 002" value="' + esc(ui.fRt) + '" data-bind="fRt"></div>') +
+            '<div><label class="lbl" for="f-rw">RW (boleh kosong)</label>' +
+            '<input id="f-rw" type="text" class="inp" placeholder="mis. 004" value="' + esc(ui.fRw) + '" data-bind="fRw"></div>' +
+            '<div><label class="lbl" for="f-jml">Jumlah penghuni (jiwa)</label>' +
+            '<input id="f-jml" type="number" inputmode="numeric" min="0" step="1" class="inp" placeholder="mis. 4" value="' + esc(ui.fJmlPenghuni) + '" data-bind="fJmlPenghuni"></div>' +
+            '<div><label class="lbl" for="f-kk">Jumlah KK</label>' +
+            '<input id="f-kk" type="number" inputmode="numeric" min="0" step="1" class="inp" placeholder="mis. 1" value="' + esc(ui.fJmlKK) + '" data-bind="fJmlKK"></div>' +
+            '<div><label class="lbl" for="f-hp">No. HP / WA Kepala Keluarga (boleh kosong)</label>' +
+            '<input id="f-hp" type="tel" inputmode="tel" class="inp" placeholder="mis. 081234567890" value="' + esc(ui.fHp) + '" data-bind="fHp"></div>' +
+            '<div><label class="lbl" for="f-hunian">Status hunian</label>' +
+            '<select id="f-hunian" class="inp" data-bind-sel="fStatusHunian">' +
+            ["Milik Sendiri", "Kontrak", "Kos", "Lainnya"].map(function (o) {
+              return '<option value="' + o + '"' + (ui.fStatusHunian === o ? " selected" : "") + ">" + o + "</option>";
+            }).join("") + "</select></div>" +
             '<div><label class="lbl" for="f-status">Status rumah</label>' +
             '<select id="f-status" class="inp" data-bind="fStatus">' +
             '<option value="aktif"' + (ui.fStatus === "aktif" ? " selected" : "") + ">Aktif — dihuni, ikut jimpitan</option>" +
@@ -2262,7 +2286,7 @@
             '<button type="button" class="btn btn-ghost" data-act="house-cancel">Batal</button></div></form>';
         }
         html += '<div><label class="lbl" for="cari-rumah">Cari rumah</label>' +
-          '<input id="cari-rumah" type="search" class="inp" placeholder="Nomor, nama penghuni, atau blok…" value="' +
+          '<input id="cari-rumah" type="search" class="inp" placeholder="Nomor, nama, HP, alamat, atau blok…" value="' +
           esc(ui.cari) + '" data-bind="cari"></div>';
         if (filtered.length === 0) {
           html += '<p class="empty">' + (state.houses.length === 0
@@ -2271,9 +2295,23 @@
         }
         html += '<div class="list">';
         filtered.forEach(function (h) {
+          var det = [];
+          if (h.hp) det.push(h.hp);
+          if (h.alamat) det.push(h.alamat);
+          var jiwa = [];
+          if (h.jumlahPenghuni != null && h.jumlahPenghuni !== "") jiwa.push(h.jumlahPenghuni + " jiwa");
+          if (h.jumlahKK != null && h.jumlahKK !== "") jiwa.push(h.jumlahKK + " KK");
+          if (jiwa.length) det.push(jiwa.join(" · "));
+          var rtrw = [];
+          if (h.rt) rtrw.push("RT " + h.rt);
+          if (h.rw) rtrw.push("RW " + h.rw);
+          if (rtrw.length) det.push(rtrw.join(" · "));
+          if (h.statusHunian) det.push(h.statusHunian);
+          if (h.tanggalDaftar) det.push("Terdaftar " + fmtSingkat(h.tanggalDaftar));
           html += '<div class="row-item"><div><p class="t">Rumah ' + esc(h.nomor) +
             (h.blok ? ' <span style="font-weight:600;color:var(--dim)">· Blok ' + esc(h.blok) + "</span>" : "") +
             '</p><p class="s" style="font-size:.875rem">' + esc(h.namaPenghuni) + "</p>" +
+            (det.length ? '<p class="s">' + det.map(esc).join(" · ") + "</p>" : "") +
             (h.catatan ? '<p class="s">' + esc(h.catatan) + "</p>" : "") +
             '</div><div style="display:flex;align-items:center;gap:.5rem">' +
             (h.status === "aktif" ? badge("green", "Aktif") : h.status === "kosong" ? badge("gray", "Kosong") : badge("red", "Nonaktif")) +
@@ -2503,7 +2541,7 @@
         }
         r.perRumah.forEach(function (p) {
           html += '<div class="rep-row"><p style="margin:0;font-weight:700">' + esc(p.house.nomor) + '</p>' +
-            '<p style="margin:0;font-size:.875rem;color:var(--dim)">' + esc(p.house.namaPenghuni) + '</p>' +
+            '<p style="margin:0;font-size:.875rem;color:var(--dim)">' + esc(p.house.namaPenghuni) + (p.house.hp ? " · " + esc(p.house.hp) : "") + '</p>' +
             '<p class="num r" style="margin:0;font-size:.875rem">' + p.hariSetor + ' hari</p>' +
             '<p class="num r" style="margin:0;font-size:.875rem">' + rp(p.jimpitan) + '</p>' +
             '<p class="num r" style="margin:0;font-size:.875rem;font-weight:600;color:var(--amber)">' + (p.kelebihan > 0 ? rp(p.kelebihan) : "—") + '</p>' +
@@ -2602,7 +2640,7 @@
               '<div><label class="lbl" for="pf-house">Rumah tempat tinggal</label>' +
               '<select id="pf-house" class="inp" data-bind-sel="pfHouse"><option value="">— pilih rumah —</option>' +
               sortedHouses().map(function (h) {
-                return '<option value="' + h.id + '"' + (String(ui.pfHouse) === String(h.id) ? " selected" : "") + ">Rumah " + esc(h.nomor) + " · " + esc(h.namaPenghuni) + "</option>";
+                return '<option value="' + h.id + '"' + (String(ui.pfHouse) === String(h.id) ? " selected" : "") + ">Rumah " + esc(h.nomor) + " · " + esc(h.namaPenghuni) + (h.blok ? " · Blok " + esc(h.blok) : "") + "</option>";
               }).join("") + "</select></div>" +
               fld("pf-nama", "Nama lengkap", "pfNama", ui.pfNama, "Sesuai KTP") +
               fld("pf-kk", "No. KK", "pfKK", ui.pfKK, "16 digit No. KK") +
@@ -3159,7 +3197,7 @@
             '<div class="actions-row"><button type="submit" class="btn btn-primary">Simpan PIN &amp; masuk sebagai Super Admin</button>' +
             '<button type="button" class="btn btn-ghost" data-act="login-close">Batal</button></div>' +
             '<div class="actions-row" style="margin-top:.5rem"><button type="button" class="btn btn-ghost" data-act="server-login-open">Sudah punya akun? Masuk dengan nama &amp; PIN</button></div>' +
-            '<p class="hint" style="margin-top:.75rem">Setelah PIN dibuat, Anda langsung masuk sebagai Super Admin dan sesi itu tersimpan di perangkat ini: refresh, menutup tab, atau membuka lagi halaman ini tidak meminta PIN dari awal — sesi berakhir hanya bila Anda menekan tombol Keluar. PIN tersimpan hanya di perangkat ini dan ikut ter-ekspor di file cadangan JSON (cadangan versi 5). Pengguna tambahan (Admin, Bendahara, Petugas, atau Warga) bisa ditambah nanti di menu Users oleh Super Admin. Karena versi ini statis tanpa server, perlindungan ini mencegah warga biasa mengubah data dari tautan publik; keamanan penuh antarperangkat membutuhkan versi server.</p>' +
+            '<p class="hint" style="margin-top:.75rem">Setelah PIN dibuat, Anda langsung masuk sebagai Super Admin dan sesi itu tersimpan di perangkat ini: refresh, menutup tab, atau membuka lagi halaman ini tidak meminta PIN dari awal — sesi berakhir hanya bila Anda menekan tombol Keluar. PIN tersimpan hanya di perangkat ini dan ikut ter-ekspor di file cadangan JSON (cadangan versi 6). Pengguna tambahan (Admin, Bendahara, Petugas, atau Warga) bisa ditambah nanti di menu Users oleh Super Admin. Karena versi ini statis tanpa server, perlindungan ini mencegah warga biasa mengubah data dari tautan publik; keamanan penuh antarperangkat membutuhkan versi server.</p>' +
             '</div></form></div>';
         }
         var html = '<div class="modal-overlay"><form class="modal-card login-modal" data-form="login">' +
@@ -3521,12 +3559,12 @@
 
       /* ================= Aksi ================= */
       function butuhNama() {
+        /* Nama pencatat selalu dari akun yang masuk (state.nama) — tidak
+           lagi diketik di form. Bila kosong, akun belum masuk dengan benar. */
         if (!state.nama.trim()) {
-          ui.namaError = "Isi dulu nama " + ROLE_LABEL[state.role].toLowerCase() + " yang bertugas.";
+          ui.namaError = "Nama akun tidak ditemukan — keluar lalu masuk lagi dengan nama & PIN.";
           ui.error = "";
           render();
-          var el = document.getElementById("nama-petugas");
-          if (el) el.focus();
           return true;
         }
         ui.namaError = "";
@@ -3569,10 +3607,14 @@
           ["Total keluar", r.ringkasan.totalKeluar].map(q).join(","),
           ["Saldo bulan", r.ringkasan.saldoBulan].map(q).join(","),
           "",
-          ["Nomor rumah", "Penghuni", "Hari setor", "Jimpitan", "Kelebihan", "Total"].map(q).join(",")
+          ["Nomor rumah", "Penghuni", "HP", "Alamat", "Penghuni (jiwa)", "KK", "Hari setor", "Jimpitan", "Kelebihan", "Total"].map(q).join(",")
         ];
         r.perRumah.forEach(function (p) {
-          lines.push([p.house.nomor, p.house.namaPenghuni, p.hariSetor, p.jimpitan, p.kelebihan, p.total].map(q).join(","));
+          lines.push([p.house.nomor, p.house.namaPenghuni, p.house.hp || "-",
+            p.house.alamat || "-",
+            (p.house.jumlahPenghuni != null && p.house.jumlahPenghuni !== "" ? p.house.jumlahPenghuni : "-"),
+            (p.house.jumlahKK != null && p.house.jumlahKK !== "" ? p.house.jumlahKK : "-"),
+            p.hariSetor, p.jimpitan, p.kelebihan, p.total].map(q).join(","));
         });
         downloadFile("laporan-jimpitan-" + ui.bulan + ".csv", lines.join("\n"), "text/csv;charset=utf-8");
       }
@@ -3674,6 +3716,7 @@
       function resetHouseForm() {
         ui.houseForm = null; ui.fNomor = ""; ui.fPenghuni = ""; ui.fBlok = "";
         ui.fStatus = "aktif"; ui.fCatatan = ""; ui.fError = ""; ui.fRt = "";
+        ui.fAlamat = ""; ui.fRw = ""; ui.fJmlPenghuni = ""; ui.fJmlKK = ""; ui.fHp = ""; ui.fStatusHunian = "Milik Sendiri";
       }
 
       document.addEventListener("click", function (ev) {
@@ -3743,6 +3786,10 @@
           ui.fNomor = h.nomor; ui.fPenghuni = h.namaPenghuni; ui.fBlok = h.blok || "";
           ui.fStatus = h.status; ui.fCatatan = h.catatan || ""; ui.fError = ""; ui.error = "";
           ui.fRt = h.rt || "";
+          ui.fAlamat = h.alamat || ""; ui.fRw = h.rw || "";
+          ui.fJmlPenghuni = (h.jumlahPenghuni != null && h.jumlahPenghuni !== "") ? String(h.jumlahPenghuni) : "";
+          ui.fJmlKK = (h.jumlahKK != null && h.jumlahKK !== "") ? String(h.jumlahKK) : "";
+          ui.fHp = h.hp || ""; ui.fStatusHunian = h.statusHunian || "Milik Sendiri";
           render();
         }
         else if (act === "house-cancel") { resetHouseForm(); render(); }
@@ -3985,7 +4032,7 @@
         else if (act === "backup-export") {
           if (!isPengurus()) { ui.loginOpen = true; ui.loginError = "Ekspor cadangan khusus pengurus. Masuk dulu dengan PIN."; render(); return; }
           var data = {
-            aplikasi: "sistem-jimpitan-warga-rt", versiCadangan: 5, dieksporPada: new Date().toISOString(),
+            aplikasi: "sistem-jimpitan-warga-rt", versiCadangan: 6, dieksporPada: new Date().toISOString(),
             settings: state.settings, pins: state.pins, users: state.users, houses: state.houses,
             collections: state.collections, expenses: state.expenses,
             warga: state.warga, iuran: state.iuran, aset: state.aset, surat: state.surat,
@@ -4003,7 +4050,6 @@
         var el = ev.target;
         var bind = el.getAttribute && el.getAttribute("data-bind");
         if (!bind) return;
-        if (bind === "nama") { state.nama = el.value; return; }
         if (bind === "tanggal") { ui.tanggal = el.value || todayStr(); render(); return; }
         if (bind === "bulan") { ui.bulan = el.value || monthStr(); render(); return; }
         if (bind === "cari") {
@@ -4116,12 +4162,20 @@
                   if (data.pins[k]) state.pins[k] = String(data.pins[k]);
                 });
               }
-              state.houses = data.houses; state.collections = data.collections; state.expenses = data.expenses;
+              /* Rumah dari cadangan lama (v1–v5) belum punya field baru — diisi bawaan kosong supaya tampil normal. */
+              state.houses = (data.houses || []).map(function (hh) {
+                return Object.assign({ alamat: "", rw: "", jumlahPenghuni: null, jumlahKK: null, hp: "", statusHunian: "", tanggalDaftar: "" }, hh || {});
+              });
+              state.collections = data.collections; state.expenses = data.expenses;
               /* Cadangan lama (v1) belum punya modul RT/RW, cadangan v3 belum punya profil/broadcast/bayar, cadangan v4 belum punya users — kolom yang tidak ada diisi kosong. */
               ["users", "warga", "iuran", "aset", "surat", "pinjam", "aduan", "agenda", "umum", "umkm", "audit", "profil", "broadcast", "bayar"].forEach(function (k) {
                 state[k] = Array.isArray(data[k]) ? data[k] : [];
               });
-              state.seq = Number(data.seq) || (state.houses.length + state.collections.length + state.expenses.length + 1);
+              /* Impor harus selalu menang atas penjaga tab-basi: seq baru
+                 dibuat lebih besar dari seq perangkat ini sebelum impor,
+                 supaya simpanPerangkat tidak memuat ulang state lama. */
+              state.seq = Math.max(Number(data.seq) || 0, Number(state.seq) || 0,
+                state.houses.length + state.collections.length + state.expenses.length + 1) + 1;
               ui.backupMsg = "Cadangan berhasil diimpor: " + state.houses.length + " rumah, " +
                 state.collections.length + " catatan setoran, " + state.expenses.length + " pengeluaran, " +
                 state.warga.length + " warga/KK, " + state.profil.length + " profil warga, " +
@@ -4319,6 +4373,13 @@
           if (!canKelola()) { ui.error = "Data rumah hanya dikelola Bendahara dan Super Admin."; render(); return; }
           if (!ui.fNomor.trim()) { ui.fError = "Nomor rumah wajib diisi."; render(); return; }
           if (!ui.fPenghuni.trim()) { ui.fError = "Nama penghuni wajib diisi."; render(); return; }
+          if (ui.fHp.trim()) {
+            var hpD = ui.fHp.replace(/[^0-9]/g, "");
+            if (hpD.length < 9 || hpD.length > 15) { ui.fError = "No. HP tidak valid — isi 9–15 angka."; render(); return; }
+          }
+          function jmlOk(v) { v = String(v || "").trim(); return v === "" || (/^[0-9]+$/.test(v) && Number(v) >= 0); }
+          if (!jmlOk(ui.fJmlPenghuni)) { ui.fError = "Jumlah penghuni harus angka 0 atau lebih."; render(); return; }
+          if (!jmlOk(ui.fJmlKK)) { ui.fError = "Jumlah KK harus angka 0 atau lebih."; render(); return; }
           var dup = state.houses.some(function (h) {
             return h.nomor.trim().toLowerCase() === ui.fNomor.trim().toLowerCase() &&
               (!ui.houseForm.editingId || h.id !== ui.houseForm.editingId);
@@ -4330,12 +4391,21 @@
               eh.nomor = ui.fNomor.trim(); eh.namaPenghuni = ui.fPenghuni.trim();
               eh.blok = ui.fBlok.trim(); eh.status = ui.fStatus; eh.catatan = ui.fCatatan.trim();
               eh.rt = ui.fRt || "";
+              eh.alamat = ui.fAlamat.trim(); eh.rw = ui.fRw.trim();
+              eh.jumlahPenghuni = ui.fJmlPenghuni.trim() === "" ? null : Math.max(0, Math.round(Number(ui.fJmlPenghuni)));
+              eh.jumlahKK = ui.fJmlKK.trim() === "" ? null : Math.max(0, Math.round(Number(ui.fJmlKK)));
+              eh.hp = ui.fHp.trim(); eh.statusHunian = ui.fStatusHunian || "";
+              if (!eh.tanggalDaftar) eh.tanggalDaftar = todayStr();
               logAudit("Data rumah diubah: Rumah " + eh.nomor + " (" + eh.namaPenghuni + ").");
             }
           } else {
             state.houses.push({
               id: nextId(), nomor: ui.fNomor.trim(), namaPenghuni: ui.fPenghuni.trim(),
-              blok: ui.fBlok.trim(), status: ui.fStatus, catatan: ui.fCatatan.trim(), rt: ui.fRt || ""
+              blok: ui.fBlok.trim(), status: ui.fStatus, catatan: ui.fCatatan.trim(), rt: ui.fRt || "",
+              alamat: ui.fAlamat.trim(), rw: ui.fRw.trim(),
+              jumlahPenghuni: ui.fJmlPenghuni.trim() === "" ? null : Math.max(0, Math.round(Number(ui.fJmlPenghuni))),
+              jumlahKK: ui.fJmlKK.trim() === "" ? null : Math.max(0, Math.round(Number(ui.fJmlKK))),
+              hp: ui.fHp.trim(), statusHunian: ui.fStatusHunian || "", tanggalDaftar: todayStr()
             });
             logAudit("Data rumah ditambah: Rumah " + ui.fNomor.trim() + " (" + ui.fPenghuni.trim() + ").");
           }
