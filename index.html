@@ -909,6 +909,14 @@
       function fmtBulan(ym) {
         return new Intl.DateTimeFormat("id-ID", { month: "long", year: "numeric" }).format(new Date(ym + "-01T00:00:00"));
       }
+      /* Hari dalam minggu: 0=Minggu … 6=Sabtu (mengikuti Date.getDay).
+         Jadwal keliling berbasis hari — tanggal & jam diambil otomatis
+         dari jam sistem perangkat (todayStr / jamSekarang). */
+      var NAMA_HARI = ["Minggu", "Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"];
+      var URUTAN_HARI = [1, 2, 3, 4, 5, 6, 0]; /* tampil Senin–Minggu */
+      function hariKe(iso) { return new Date(iso + "T00:00:00").getDay(); }
+      function namaHari(h) { return NAMA_HARI[h] || ""; }
+      function jamSekarang() { var d = new Date(); return pad(d.getHours()) + ":" + pad(d.getMinutes()); }
       function esc(s) {
         return String(s == null ? "" : s)
           .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
@@ -939,7 +947,7 @@
           pengurus: []               /* [{nama, jabatan, noHp, foto}] — tampil di halaman depan */
         },
         houses: [],                /* {id, nomor, namaPenghuni, blok, status, catatan, alamat, rw, jumlahPenghuni, jumlahKK, hp, statusHunian, tanggalDaftar, rt} */
-        collections: [],           /* {id, houseId, tanggal, total, jimpitan, kelebihan, petugas, status, diverifikasiOleh, alasanBatal} */
+        collections: [],           /* {id, houseId, tanggal, jam:"HH:MM" otomatis sistem, total, jimpitan, kelebihan, petugas, status, diverifikasiOleh, alasanBatal} */
         expenses: [],              /* {id, tanggal, keperluan, jumlah, dicatatOleh, keterangan, status, alasanBatal} */
         warga: [],                 /* {id, nama, alamat, noHp, status} — data KK untuk iuran bulanan */
         iuran: [],                 /* {id, wargaId, bulan, jumlah, status, tanggalBayar} — ceklis per bulan */
@@ -954,13 +962,12 @@
         broadcast: [],             /* {id, tanggal, judul, pesan, oleh, penerima} — log broadcast WA */
         bayar: [],                 /* {id, wargaId, bulan, jumlah, buktiNama, keterangan, tanggal, status} — pembayaran iuran mandiri warga, menunggu verifikasi bendahara */
         groups: [],                /* [{id, nama, anggota:[userId,...], aktif}] — kelompok tugas keliling; anggota hanya pengguna bernama (state.users) */
-        schedules: [],             /* [{id, tanggal:"YYYY-MM-DD", groupId, dibuatOleh, status:"aktif"|"batal"}] — satu kelompok bertugas per tanggal */
+        schedules: [],             /* [{id, hari:0-6 (0=Minggu), groupId, dibuatOleh, status:"aktif"|"batal"}] — satu kelompok bertugas per hari dalam minggu, berulang tiap minggu */
         audit: [],                 /* {id, waktu, peran, nama, aksi} */
         seq: 1
       };
       /* State tampilan sesaat (form terbuka, tanggal yang dilihat, dst.) */
       var ui = {
-        tanggal: todayStr(),
         bulan: monthStr(),
         customFor: null, customVal: "",
         voidFor: null, voidReason: "",
@@ -1013,7 +1020,7 @@
         houseHapusFor: null,
         pfHapusFor: null,   /* profil warga yang panel hapusnya terbuka */
         jdNama: "", jdAnggota: [], jdGroupEdit: null,   /* form kelompok tugas */
-        jdTgl: todayStr(), jdGroup: "", jdSchedEdit: null, jdError: "", jdDone: ""
+        jdHari: new Date().getDay(), jdGroup: "", jdSchedEdit: null, jdError: "", jdDone: ""  /* form jadwal memakai hari (0-6), bukan tanggal */
       };
 
       /* ===== Penyimpanan perangkat: data, PIN, dan sesi masuk disimpan di browser
@@ -1181,7 +1188,7 @@
           ["users", "warga", "iuran", "aset", "surat", "pinjam", "aduan", "agenda", "umum", "umkm", "audit", "profil", "broadcast", "bayar", "groups", "schedules"].forEach(function (k) {
             state[k] = Array.isArray(d[k]) ? d[k] : [];
           });
-          normalisasiJadwal(); /* cadangan lama (sebelum v7) belum punya groups/schedules — diisi kosong */
+          normalisasiJadwal(); /* cadangan lama (sebelum v7) belum punya groups/schedules — diisi kosong; jadwal tanggal v7 diabaikan */
           state.seq = Number(d.seq) || (state.houses.length + state.collections.length + state.expenses.length + 1);
           /* Pulihkan sesi dari snapshot hanya bila kunci sesi tersendiri belum
              memulihkan sesi apa pun, dan hanya bila PIN peran itu memang ada
@@ -1315,7 +1322,7 @@
           if (k === "settings" || k === "pins") return;
           state[k] = Array.isArray(cs[k]) ? cs[k] : [];
         });
-        normalisasiJadwal(); /* cloud lama (sebelum v7) belum punya groups/schedules — diisi kosong */
+        normalisasiJadwal(); /* cloud lama (sebelum v7) belum punya groups/schedules — diisi kosong; jadwal tanggal v7 diabaikan */
         if (cs.pins) {
           ["petugas", "bendahara", "superadmin"].forEach(function (k) {
             if (cs.pins[k]) state.pins[k] = String(cs.pins[k]);
@@ -1621,13 +1628,20 @@
         state.groups = state.groups.filter(function (g) { return g && typeof g === "object"; }).map(function (g) {
           return { id: g.id, nama: String(g.nama || ""), anggota: Array.isArray(g.anggota) ? g.anggota : [], aktif: g.aktif !== false };
         });
+        /* Cadangan v7 ke bawah memakai jadwal berbasis tanggal — TIDAK
+           dikonversi ke pola mingguan: jadwal satu tanggal tertentu tidak
+           boleh berubah makna menjadi berulang tiap minggu. Jadwal tanggal
+           lama diabaikan; semua data lain dipertahankan. */
         state.schedules = state.schedules.filter(function (s) { return s && typeof s === "object"; }).map(function (s) {
-          return { id: s.id, tanggal: String(s.tanggal || ""), groupId: s.groupId, dibuatOleh: String(s.dibuatOleh || ""), status: s.status === "batal" ? "batal" : "aktif" };
-        });
+          var h = Number(s.hari);
+          if (!isFinite(h) || Math.floor(h) !== h || h < 0 || h > 6) return null;
+          return { id: s.id, hari: h, groupId: s.groupId, dibuatOleh: String(s.dibuatOleh || ""), status: s.status === "batal" ? "batal" : "aktif" };
+        }).filter(function (s) { return s !== null; });
       }
       function jadwalAktif(tanggal) {
+        var hari = hariKe(tanggal); /* jadwal berbasis hari dalam minggu */
         var found = null;
-        (state.schedules || []).forEach(function (s) { if (s.tanggal === tanggal && s.status === "aktif") found = s; });
+        (state.schedules || []).forEach(function (s) { if (s.hari === hari && s.status === "aktif") found = s; });
         if (!found) return null;
         var g = groupById(found.groupId);
         if (!g || g.aktif === false) return null; /* kelompok dinonaktifkan -> jadwalnya tidak berlaku */
@@ -1638,7 +1652,7 @@
         if (!j) {
           return { ok: false, alasan: "tanpa-jadwal", group: null,
             pesan: tanggal === todayStr()
-              ? "Belum ada jadwal keliling untuk tanggal ini — hubungi admin."
+              ? "Belum ada jadwal keliling untuk hari ini (" + namaHari(hariKe(tanggal)) + ") — hubungi admin."
               : "Belum ada jadwal keliling untuk " + fmtTanggal(tanggal) + " — hubungi admin." };
         }
         var sayaAktif = false;
@@ -1647,7 +1661,7 @@
         if (!anggota) {
           return { ok: false, alasan: "bukan-anggota", group: j.group,
             pesan: tanggal === todayStr()
-              ? "Hari ini giliran Kelompok " + j.group.nama + ". Akun Anda tidak termasuk kelompok yang bertugas."
+              ? "Hari ini (" + namaHari(hariKe(tanggal)) + ") giliran Kelompok " + j.group.nama + ". Akun Anda tidak termasuk kelompok yang bertugas."
               : "Pada " + fmtTanggal(tanggal) + " giliran Kelompok " + j.group.nama + ". Akun Anda tidak termasuk kelompok yang bertugas." };
         }
         return { ok: true, alasan: "", group: j.group, jadwal: j.jadwal, pesan: "" };
@@ -2393,7 +2407,7 @@
         if (d.setoranTerbaru.length === 0) html += '<p class="empty">Belum ada setoran tercatat.</p>';
         d.setoranTerbaru.forEach(function (c) {
           html += '<div class="row-item"><div><p class="t">' + esc(colRowHouse(c)) + '</p><p class="s">' +
-            esc(fmtSingkat(c.tanggal)) + " · petugas " + esc(c.petugas) + '</p></div><div><p class="amt num">' +
+            esc(fmtSingkat(c.tanggal)) + (c.jam ? " " + esc(c.jam) : "") + " · petugas " + esc(c.petugas) + '</p></div><div><p class="amt num">' +
             rp(c.total) + "</p>" + (c.kelebihan > 0 ? '<p class="amt-sub num">+' + rp(c.kelebihan) + " kelebihan</p>" : "") + "</div></div>";
         });
         html += "</div></section>";
@@ -2452,26 +2466,25 @@
         }
         var canWrite = canCatat();
         var bendaharaPlus = isBendahara();
-        var sheet = daySheet(ui.tanggal);
+        var tanggal = todayStr(); /* tanggal keliling SELALU hari ini, dari jam sistem */
+        var sheet = daySheet(tanggal);
         var html = '<div class="stack">';
         html += '<div><h2 class="sec">Keliling &amp; pencatatan harian</h2>' +
           '<p class="sub">Satu rumah, satu setoran per hari. Setoran di atas nominal baku otomatis terpecah: jimpitan + kelebihan.</p></div>';
         /* Info jadwal tanggal ini: siapa bertugas / belum ada jadwal.
            Pencatatan hanya dibuka untuk anggota kelompok yang bertugas. */
-        var cekJadwal = cekJadwalCatat(ui.tanggal);
+        var cekJadwal = cekJadwalCatat(tanggal);
         if (cekJadwal.ok) {
-          html += '<div class="notice-green"><p style="margin:0;font-size:.875rem;font-weight:700">Jadwal keliling ' + esc(fmtTanggal(ui.tanggal)) + ': Kelompok ' + esc(cekJadwal.group.nama) + ' bertugas</p>' +
+          html += '<div class="notice-green"><p style="margin:0;font-size:.875rem;font-weight:700">Jadwal keliling ' + esc(fmtTanggal(tanggal)) + ': Kelompok ' + esc(cekJadwal.group.nama) + ' bertugas</p>' +
             '<p style="margin:.25rem 0 0;font-size:.8125rem">Anggota: ' + esc(namaAnggota(cekJadwal.group).map(function (a) { return a.nama; }).join(", ")) + '</p></div>';
         } else {
           html += '<div class="notice-amber"><p style="margin:0;font-size:.875rem;font-weight:700">' + esc(cekJadwal.pesan) + '</p>' +
             '<p style="margin:.25rem 0 0;font-size:.8125rem">Pencatatan setoran hanya bisa dilakukan anggota kelompok yang bertugas pada tanggal ini.</p></div>';
         }
         html += '<div class="grid2">';
-        html += '<div><label class="lbl" for="tgl-keliling">Tanggal keliling</label><div style="display:flex;gap:.5rem">' +
-          '<button type="button" class="btn btn-ghost" data-act="shift-date" data-days="-1" aria-label="Hari sebelumnya">‹</button>' +
-          '<input id="tgl-keliling" type="date" class="inp" value="' + ui.tanggal + '" data-bind="tanggal">' +
-          '<button type="button" class="btn btn-ghost" data-act="shift-date" data-days="1" aria-label="Hari berikutnya">›</button></div>' +
-          '<p class="hint">' + esc(fmtTanggal(ui.tanggal)) + "</p></div>";
+        html += '<div><p class="lbl" style="margin-bottom:.25rem">Tanggal keliling</p>' +
+          '<p style="margin:0;font-weight:700">Hari ini, ' + esc(fmtTanggal(tanggal)) + '</p>' +
+          '<p class="hint" style="margin-top:.25rem">Tanggal dan jam mengikuti jam sistem perangkat ini — tidak bisa diubah manual.</p></div>';
         if (canWrite) {
           /* Nama pencatat melekat pada akun yang masuk — baca-saja, tidak bisa diketik. */
           html += '<div><p class="lbl" style="margin-bottom:.25rem">Dicatat oleh</p>' +
@@ -2512,7 +2525,7 @@
               (c.status === "terverifikasi"
                 ? badge("green", "Terverifikasi" + (c.diverifikasiOleh ? " · " + c.diverifikasiOleh : ""))
                 : badge("amber", "Menunggu verifikasi")) +
-              '<span style="font-size:.75rem;color:var(--dim)">petugas ' + esc(c.petugas) + "</span></div>";
+              '<span style="font-size:.75rem;color:var(--dim)">petugas ' + esc(c.petugas) + (c.jam ? " · " + esc(c.jam) : "") + "</span></div>";
             if (canWrite) {
               html += '<div class="actions-row">';
               if (bendaharaPlus && c.status === "menunggu") {
@@ -2570,38 +2583,47 @@
         var jHariIni = jadwalAktif(hariIni);
         var html = '<div class="stack-lg">';
         html += '<section><h2 class="sec">Jadwal Keliling</h2>' +
-          '<p class="sub">Admin menetapkan kelompok yang bertugas untuk tiap tanggal. Hanya anggota kelompok yang bertugas pada tanggal itu yang bisa mencatat setoran jimpitan — aturan ini berlaku untuk semua peran, termasuk Super Admin. Bila belum ada jadwal, tidak ada yang bisa mencatat sampai admin menetapkan jadwal hari itu.</p></section>';
+          '<p class="sub">Admin menetapkan kelompok yang bertugas untuk tiap hari dalam seminggu (Senin–Minggu). Jadwal berulang setiap minggu — tanggal dan jam mengikuti sistem otomatis, jadi tidak perlu menetapkan tanggal satu per satu. Hanya anggota kelompok yang bertugas hari itu yang bisa mencatat setoran jimpitan — aturan ini berlaku untuk semua peran, termasuk Super Admin. Bila belum ada jadwal, tidak ada yang bisa mencatat sampai admin menetapkan jadwal hari itu.</p></section>';
         if (ui.jdError) html += '<p class="err">' + esc(ui.jdError) + '</p>';
         if (ui.jdDone) html += '<p class="ok-note">' + esc(ui.jdDone) + '</p>';
-        /* Kartu Hari ini */
+        /* Kartu Hari ini — hari + tanggal otomatis dari jam sistem */
         html += '<section class="card"><h3 style="margin:0 0 .25rem">Hari ini · ' + esc(fmtTanggal(hariIni)) + '</h3>';
         if (jHariIni) {
           html += '<p style="margin:.25rem 0;font-weight:700">Kelompok ' + esc(jHariIni.group.nama) + ' bertugas</p>' +
             '<p class="s" style="margin:0">Anggota: ' + esc(namaAnggota(jHariIni.group).map(function (a) { return a.nama + " (" + a.peran + ")"; }).join(", ")) + '</p>';
         } else {
           html += '<p style="margin:.25rem 0;font-weight:700">Belum ada jadwal</p>' +
-            '<p class="s" style="margin:0">Belum ada kelompok yang bertugas hari ini — pencatatan jimpitan terkunci sampai ' + (kelola ? "admin menetapkan jadwal di bawah." : "admin menetapkan jadwal.") + '</p>';
+            '<p class="s" style="margin:0">Belum ada kelompok yang bertugas hari ini (' + esc(namaHari(hariKe(hariIni))) + ') — pencatatan jimpitan terkunci sampai ' + (kelola ? "admin menetapkan jadwal di bawah." : "admin menetapkan jadwal.") + '</p>';
         }
         html += '</section>';
-        /* Jadwal 14 hari ke depan */
-        var sampai = shiftDate(hariIni, 14);
-        var mendatang = state.schedules.slice().filter(function (s) { return s.tanggal >= hariIni && s.tanggal <= sampai; })
-          .sort(function (a, b) { return a.tanggal < b.tanggal ? -1 : a.tanggal > b.tanggal ? 1 : a.id - b.id; });
-        html += '<section><h2 class="sec">Jadwal 14 hari ke depan</h2><div class="list" style="margin-top:.75rem">';
-        if (mendatang.length === 0) html += '<p class="empty">Belum ada jadwal untuk 14 hari ke depan.</p>';
-        mendatang.forEach(function (s) {
-          var g = groupById(s.groupId);
-          var batal = s.status !== "aktif";
-          html += '<div class="row-item"><div><p class="t">' + esc(fmtTanggal(s.tanggal)) + '</p>' +
-            '<p class="s">' + (g ? "Kelompok " + esc(g.nama) + " · " + esc(namaAnggota(g).map(function (a) { return a.nama; }).join(", ")) : "Kelompok tidak ditemukan") +
-            (s.dibuatOleh ? " · ditetapkan oleh " + esc(s.dibuatOleh) : "") + '</p></div>' +
+        /* Pola mingguan: satu kelompok per hari (Senin–Minggu), berulang */
+        html += '<section><h2 class="sec">Jadwal mingguan (berulang)</h2><div class="list" style="margin-top:.75rem">';
+        URUTAN_HARI.forEach(function (h) {
+          var sAktif = null, sBatal = null;
+          (state.schedules || []).forEach(function (s) {
+            if (s.hari === h) { if (s.status === "aktif") sAktif = s; else sBatal = s; }
+          });
+          var g = sAktif ? groupById(sAktif.groupId) : null;
+          html += '<div class="row-item"><div><p class="t">' + esc(namaHari(h)) + (h === hariKe(hariIni) ? " · hari ini" : "") + '</p>' +
+            '<p class="s">' + (g ? "Kelompok " + esc(g.nama) + " · " + esc(namaAnggota(g).map(function (a) { return a.nama; }).join(", ")) : "Belum ditetapkan") +
+            (sAktif && sAktif.dibuatOleh ? " · ditetapkan oleh " + esc(sAktif.dibuatOleh) : "") +
+            (!sAktif && sBatal ? " · jadwal dibatalkan" : "") + '</p></div>' +
             '<div style="display:flex;gap:.375rem;flex-wrap:wrap;justify-content:flex-end;align-items:center">' +
-            statusBadge(batal ? "Batal" : "Aktif") +
-            (kelola && !batal
-              ? '<button type="button" class="btn btn-ghost" data-act="jd-sched-edit" data-id="' + s.id + '">Ubah</button>' +
-                '<button type="button" class="btn btn-danger-ghost" data-act="jd-sched-batal" data-id="' + s.id + '">Batalkan</button>'
+            statusBadge(sAktif ? "Aktif" : "Belum ada") +
+            (kelola && sAktif
+              ? '<button type="button" class="btn btn-ghost" data-act="jd-sched-edit" data-id="' + sAktif.id + '">Ubah</button>' +
+                '<button type="button" class="btn btn-danger-ghost" data-act="jd-sched-batal" data-id="' + sAktif.id + '">Batalkan</button>'
               : "") + '</div></div>';
         });
+        html += '</div></section>';
+        /* 14 hari ke depan — diturunkan otomatis dari pola mingguan */
+        html += '<section><h2 class="sec">14 hari ke depan (otomatis)</h2><div class="list" style="margin-top:.75rem">';
+        for (var i = 0; i < 14; i++) {
+          var tgl = shiftDate(hariIni, i);
+          var jj = jadwalAktif(tgl);
+          html += '<div class="row-item"><div><p class="t">' + esc(fmtTanggal(tgl)) + '</p>' +
+            '<p class="s">' + (jj ? "Kelompok " + esc(jj.group.nama) + " · " + esc(namaAnggota(jj.group).map(function (a) { return a.nama; }).join(", ")) : "Belum ada kelompok") + '</p></div></div>';
+        }
         html += '</div></section>';
         /* Daftar kelompok */
         html += '<section><h2 class="sec">Kelompok Tugas (' + state.groups.length + ')</h2><div class="list" style="margin-top:.75rem">';
@@ -2635,15 +2657,16 @@
             '<div class="actions-row" style="margin-top:.75rem"><button type="submit" class="btn btn-primary">' + (ui.jdGroupEdit != null ? "Simpan perubahan" : "Simpan kelompok") + '</button>' +
             (ui.jdGroupEdit != null ? '<button type="button" class="btn btn-ghost" data-act="jd-group-cancel">Batal</button>' : "") + '</div>' +
             '<p class="hint">Nama kelompok wajib dan tidak boleh sama dengan kelompok lain. Hanya pengguna bernama yang bisa dipilih — akun peran bawaan (tanpa nama) tidak bisa dijadwalkan.</p></form>';
-          /* Form jadwal */
+          /* Form jadwal — HARI saja, tanpa tanggal/jam */
           var grupAktif = state.groups.filter(function (g) { return g.aktif !== false; });
           html += '<form class="card" data-form="jd-sched"><p style="margin:0 0 .75rem;font-weight:700">' + (ui.jdSchedEdit != null ? "Ubah jadwal" : "Tetapkan jadwal keliling") + '</p><div class="grid2">' +
-            '<div><label class="lbl" for="jd-tgl">Tanggal</label><input id="jd-tgl" type="date" class="inp" value="' + esc(ui.jdTgl || "") + '" data-bind="jdTgl"></div>' +
+            '<div><label class="lbl" for="jd-hari">Hari</label><select id="jd-hari" class="inp" data-bind-sel="jdHari">' +
+            URUTAN_HARI.map(function (h) { return '<option value="' + h + '"' + (Number(ui.jdHari) === h ? " selected" : "") + '>' + namaHari(h) + '</option>'; }).join("") + '</select></div>' +
             '<div><label class="lbl" for="jd-grup">Kelompok yang bertugas</label><select id="jd-grup" class="inp" data-bind-sel="jdGroup"><option value="">— Pilih kelompok —</option>' +
             grupAktif.map(function (g) { return '<option value="' + g.id + '"' + (String(ui.jdGroup) === String(g.id) ? " selected" : "") + '>Kelompok ' + esc(g.nama) + '</option>'; }).join("") + '</select></div></div>' +
             '<div class="actions-row" style="margin-top:.75rem"><button type="submit" class="btn btn-primary">' + (ui.jdSchedEdit != null ? "Simpan perubahan" : "Simpan jadwal") + '</button>' +
             (ui.jdSchedEdit != null ? '<button type="button" class="btn btn-ghost" data-act="jd-sched-cancel">Batal</button>' : "") + '</div>' +
-            '<p class="hint">Tanggal boleh hari ini atau tanggal mendatang (seminggu/bulan ke depan). Bila tanggal itu sudah punya jadwal aktif, jadwal lama diubah ke kelompok ini — tidak dibuat duplikat. Jadwal bisa dibatalkan dari daftar di atas.</p></form>';
+            '<p class="hint">Jadwal berulang setiap minggu — tanggal dan jam mengikuti sistem otomatis. Bila hari itu sudah punya jadwal aktif, jadwal lama diubah ke kelompok ini — tidak dibuat duplikat. Jadwal bisa dibatalkan dari daftar mingguan di atas.</p></form>';
         } else {
           html += '<p class="sub">Anda melihat jadwal ini baca-saja. Hanya Super Admin dan Admin yang bisa mengelola kelompok dan jadwal.</p>';
         }
@@ -2898,7 +2921,7 @@
         if (kel.length === 0) html += '<p class="empty">Belum ada setoran dengan kelebihan.</p>';
         kel.forEach(function (c) {
           html += '<div class="row-item"><div><p class="t">' + esc(colRowHouse(c)) + '</p><p class="s">' +
-            esc(fmtSingkat(c.tanggal)) + " · total " + rp(c.total) + " · petugas " + esc(c.petugas) +
+            esc(fmtSingkat(c.tanggal)) + (c.jam ? " " + esc(c.jam) : "") + " · total " + rp(c.total) + " · petugas " + esc(c.petugas) +
             '</p></div><p class="amt num" style="color:var(--amber)">+' + rp(c.kelebihan) + "</p></div>";
         });
         html += "</div></section>";
@@ -4081,10 +4104,12 @@
         if (!canCatat()) { ui.loginOpen = true; ui.loginError = "Mencatat setoran khusus pengurus. Masuk dulu dengan PIN."; render(); return; }
         if (butuhNama()) return;
         /* Penegakan jadwal keliling (lapis handler): hanya anggota kelompok
-           yang bertugas pada TANGGAL setoran (ui.tanggal) yang boleh
-           mencatat — berlaku untuk semua peran, termasuk Super Admin.
-           Jalan keluar admin adalah menetapkan/mengubah jadwal hari itu. */
-        var cekJ = cekJadwalCatat(ui.tanggal);
+           yang bertugas HARI INI yang boleh mencatat — berlaku untuk semua
+           peran, termasuk Super Admin. Tanggal & jam setoran otomatis dari
+           jam sistem (tidak bisa diubah manual). Jalan keluar admin adalah
+           menetapkan/mengubah jadwal hari itu. */
+        var tanggal = todayStr();
+        var cekJ = cekJadwalCatat(tanggal);
         if (!cekJ.ok) { ui.error = cekJ.pesan; render(); return; }
         total = Math.round(Number(total));
         if (!isFinite(total) || total < 1) { ui.error = "Nominal harus angka lebih dari 0."; render(); return; }
@@ -4094,14 +4119,15 @@
         var kelebihan = total - jimpitan;
         var existing = null;
         state.collections.forEach(function (c) {
-          if (c.houseId === houseId && c.tanggal === ui.tanggal && c.status !== "batal") existing = c;
+          if (c.houseId === houseId && c.tanggal === tanggal && c.status !== "batal") existing = c;
         });
         if (existing) {
           existing.total = total; existing.jimpitan = jimpitan; existing.kelebihan = kelebihan;
           existing.petugas = state.nama.trim(); existing.status = "menunggu"; existing.diverifikasiOleh = "";
+          existing.jam = jamSekarang();
         } else {
           state.collections.push({
-            id: nextId(), houseId: houseId, tanggal: ui.tanggal, total: total,
+            id: nextId(), houseId: houseId, tanggal: tanggal, jam: jamSekarang(), total: total,
             jimpitan: jimpitan, kelebihan: kelebihan, petugas: state.nama.trim(),
             status: "menunggu", diverifikasiOleh: "", alasanBatal: ""
           });
@@ -4293,10 +4319,9 @@
           state.role = "warga"; state.nama = ""; state.userId = null; state.tab = "beranda";
           ui.namaError = ""; ui.error = ""; ui.menuSheet = false; render(); window.scrollTo(0, 0);
         }
-        else if (act === "shift-date") { ui.tanggal = shiftDate(ui.tanggal, Number(t.getAttribute("data-days"))); render(); }
         else if (act === "catat") { catatSetoran(Number(t.getAttribute("data-house")), Number(t.getAttribute("data-total"))); }
         else if (act === "custom-open") {
-          var cekCo = cekJadwalCatat(ui.tanggal);
+          var cekCo = cekJadwalCatat(todayStr());
           if (!cekCo.ok) { ui.error = cekCo.pesan; render(); return; }
           ui.customFor = Number(t.getAttribute("data-house")); ui.customVal = t.getAttribute("data-val") || ""; ui.voidFor = null; render(); var ci = document.getElementById("nominal-" + ui.customFor); if (ci) { ci.focus(); ci.select(); } }
         else if (act === "custom-close") { ui.customFor = null; render(); }
@@ -4314,7 +4339,7 @@
           if (!isBendahara()) { ui.error = "Verifikasi hanya oleh Bendahara atau Super Admin."; render(); return; }
           if (butuhNama()) return;
           state.collections.forEach(function (c) {
-            if (c.tanggal === ui.tanggal && c.status === "menunggu") { c.status = "terverifikasi"; c.diverifikasiOleh = state.nama.trim(); }
+            if (c.tanggal === todayStr() && c.status === "menunggu") { c.status = "terverifikasi"; c.diverifikasiOleh = state.nama.trim(); }
           });
           render();
         }
@@ -4615,10 +4640,10 @@
           var se = null;
           state.schedules.forEach(function (x) { if (x.id === Number(t.getAttribute("data-id"))) se = x; });
           if (!se) return;
-          ui.jdSchedEdit = se.id; ui.jdTgl = se.tanggal; ui.jdGroup = String(se.groupId);
+          ui.jdSchedEdit = se.id; ui.jdHari = se.hari; ui.jdGroup = String(se.groupId);
           ui.jdError = ""; ui.jdDone = ""; render();
         }
-        else if (act === "jd-sched-cancel") { ui.jdSchedEdit = null; ui.jdTgl = todayStr(); ui.jdGroup = ""; ui.jdError = ""; render(); }
+        else if (act === "jd-sched-cancel") { ui.jdSchedEdit = null; ui.jdHari = new Date().getDay(); ui.jdGroup = ""; ui.jdError = ""; render(); }
         else if (act === "jd-sched-batal") {
           if (!canKelolaJadwal()) return;
           var sb = null;
@@ -4626,8 +4651,8 @@
           if (!sb || sb.status !== "aktif") return;
           sb.status = "batal";
           var gb = groupById(sb.groupId);
-          logAudit("Jadwal keliling dibatalkan: " + fmtTanggal(sb.tanggal) + " — Kelompok " + (gb ? gb.nama : "?") + ".");
-          ui.jdDone = "Jadwal " + fmtTanggal(sb.tanggal) + " dibatalkan.";
+          logAudit("Jadwal keliling dibatalkan: hari " + namaHari(sb.hari) + " — Kelompok " + (gb ? gb.nama : "?") + ".");
+          ui.jdDone = "Jadwal hari " + namaHari(sb.hari) + " dibatalkan.";
           render();
         }
         else if (act === "dl-vercel") { downloadFile("vercel.json", VERCEL_JSON, "application/json;charset=utf-8"); }
@@ -4635,7 +4660,7 @@
         else if (act === "backup-export") {
           if (!isPengurus()) { ui.loginOpen = true; ui.loginError = "Ekspor cadangan khusus pengurus. Masuk dulu dengan PIN."; render(); return; }
           var data = {
-            aplikasi: "sistem-jimpitan-warga-rt", versiCadangan: 7, dieksporPada: new Date().toISOString(),
+            aplikasi: "sistem-jimpitan-warga-rt", versiCadangan: 8, dieksporPada: new Date().toISOString(),
             settings: state.settings, pins: state.pins, users: state.users, houses: state.houses,
             collections: state.collections, expenses: state.expenses,
             warga: state.warga, iuran: state.iuran, aset: state.aset, surat: state.surat,
@@ -4654,7 +4679,6 @@
         var el = ev.target;
         var bind = el.getAttribute && el.getAttribute("data-bind");
         if (!bind) return;
-        if (bind === "tanggal") { ui.tanggal = el.value || todayStr(); render(); return; }
         if (bind === "bulan") { ui.bulan = el.value || monthStr(); render(); return; }
         if (bind === "cari") {
           ui.cari = el.value; ui.focusId = "cari-rumah"; render(); return;
@@ -4674,7 +4698,6 @@
         var bind = el.getAttribute && el.getAttribute("data-bind");
         if (bind === "fStatus") { ui.fStatus = el.value; return; }
         if (bind === "bcPesan" || bind === "bcJudul") { ui[bind] = el.value; render(); return; }
-        if (bind === "tanggal") { ui.tanggal = el.value || todayStr(); render(); return; }
         if (bind === "bulan") { ui.bulan = el.value || monthStr(); render(); return; }
         var fileKind = el.getAttribute && el.getAttribute("data-file");
         if (fileKind === "pg-foto") {
@@ -4985,8 +5008,8 @@
         }
         else if (kind === "jd-sched") {
           if (!canKelolaJadwal()) { ui.jdError = "Hanya Super Admin dan Admin yang bisa mengelola jadwal."; render(); return; }
-          var tglJ = ui.jdTgl || "";
-          if (!/^\d{4}-\d{2}-\d{2}$/.test(tglJ)) { ui.jdError = "Pilih tanggal jadwal."; render(); return; }
+          var hariJ = Number(ui.jdHari);
+          if (!isFinite(hariJ) || Math.floor(hariJ) !== hariJ || hariJ < 0 || hariJ > 6) { ui.jdError = "Pilih hari jadwal."; render(); return; }
           var gJ = null;
           state.groups.forEach(function (g) { if (String(g.id) === String(ui.jdGroup)) gJ = g; });
           if (!gJ) { ui.jdError = "Pilih kelompok yang bertugas."; render(); return; }
@@ -4995,22 +5018,22 @@
             var target = null;
             state.schedules.forEach(function (s) { if (s.id === ui.jdSchedEdit) target = s; });
             if (!target) { ui.jdSchedEdit = null; render(); return; }
-            var bentrok = state.schedules.some(function (s) { return s.id !== target.id && s.tanggal === tglJ && s.status === "aktif"; });
-            if (bentrok) { ui.jdError = "Tanggal itu sudah punya jadwal aktif — ubah jadwal tersebut."; render(); return; }
-            target.tanggal = tglJ; target.groupId = gJ.id; target.status = "aktif";
-            logAudit("Jadwal keliling diubah: " + fmtTanggal(tglJ) + " — Kelompok " + gJ.nama + ".");
-            ui.jdDone = "Jadwal " + fmtTanggal(tglJ) + " diperbarui: Kelompok " + gJ.nama + ".";
+            var bentrok = state.schedules.some(function (s) { return s.id !== target.id && s.hari === hariJ && s.status === "aktif"; });
+            if (bentrok) { ui.jdError = "Hari " + namaHari(hariJ) + " sudah punya jadwal aktif — ubah jadwal tersebut."; render(); return; }
+            target.hari = hariJ; target.groupId = gJ.id; target.status = "aktif";
+            logAudit("Jadwal keliling diubah: hari " + namaHari(hariJ) + " — Kelompok " + gJ.nama + ".");
+            ui.jdDone = "Jadwal hari " + namaHari(hariJ) + " diperbarui: Kelompok " + gJ.nama + ".";
           } else {
             var ada = null;
-            state.schedules.forEach(function (s) { if (s.tanggal === tglJ && s.status === "aktif") ada = s; });
+            state.schedules.forEach(function (s) { if (s.hari === hariJ && s.status === "aktif") ada = s; });
             if (ada) {
               ada.groupId = gJ.id;
-              logAudit("Jadwal keliling diubah: " + fmtTanggal(tglJ) + " — Kelompok " + gJ.nama + ".");
-              ui.jdDone = "Jadwal " + fmtTanggal(tglJ) + " diperbarui: Kelompok " + gJ.nama + ".";
+              logAudit("Jadwal keliling diubah: hari " + namaHari(hariJ) + " — Kelompok " + gJ.nama + ".");
+              ui.jdDone = "Jadwal hari " + namaHari(hariJ) + " diperbarui: Kelompok " + gJ.nama + ".";
             } else {
-              state.schedules.push({ id: nextId(), tanggal: tglJ, groupId: gJ.id, dibuatOleh: state.nama.trim() || "(tanpa nama)", status: "aktif" });
-              logAudit("Jadwal keliling ditetapkan: " + fmtTanggal(tglJ) + " — Kelompok " + gJ.nama + ".");
-              ui.jdDone = "Jadwal " + fmtTanggal(tglJ) + " ditetapkan: Kelompok " + gJ.nama + ".";
+              state.schedules.push({ id: nextId(), hari: hariJ, groupId: gJ.id, dibuatOleh: state.nama.trim() || "(tanpa nama)", status: "aktif" });
+              logAudit("Jadwal keliling ditetapkan: hari " + namaHari(hariJ) + " — Kelompok " + gJ.nama + ".");
+              ui.jdDone = "Jadwal hari " + namaHari(hariJ) + " ditetapkan: Kelompok " + gJ.nama + ".";
             }
           }
           ui.jdSchedEdit = null; ui.jdError = "";
