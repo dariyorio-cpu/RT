@@ -1014,6 +1014,9 @@
         sNama: null, sWilayah: null, sNominal: null, sIuran: null, sError: "", sDone: false,
         eTgl: todayStr(), eKeperluan: "", eJumlah: "", eKet: "", eError: "",
         backupMsg: "",
+        resetMode: null,         /* null | "operasional" | "total" — dialog Reset Data di Pengaturan */
+        resetKetik: "", resetError: "", resetDone: "", resetBusy: false,
+        resetTotalPesan: "",     /* pesan sesudah reset total, tampil di form penyiapan pertama */
         cloudToken: "", cloudMsg: "", cloudErr: "", cloudConfirm: false,
         rtSec: "warga",
         iuranBulan: monthStr(),
@@ -1258,6 +1261,7 @@
       var cloudTimer = null;           /* timer debounce simpan otomatis */
       var cloudSaving = false;
       var cloudBootPending = false;    /* selama unduh awal berjalan, unggah otomatis ditahan */
+      var cloudTahanResetTotal = false; /* sesudah reset total: tahan unggah otomatis sampai penyiapan pertama selesai, supaya state kosong tidak kembali ke cloud sebelum ada PIN baru */
       var cloudSuppressSave = false;   /* menerapkan data cloud tidak memicu unggah balik */
       var cloudLastSentStr = null;     /* payload yang isinya sama persis dengan cloud terakhir diketahui */
       var cloudPending = null;         /* jawaban load yang menunggu pilihan pengguna (modal) */
@@ -1425,7 +1429,7 @@
          (data cloud lebih baru), perangkat ini mengunduh data cloud —
          bukan menimpanya. */
       function cloudSave() {
-        if (!cloudTerhubung() || cloudSaving) return Promise.resolve(false);
+        if (!cloudTerhubung() || cloudSaving || cloudTahanResetTotal) return Promise.resolve(false);
         cloudSaving = true; cloudState = "proses";
         var payload = cloudPayload();
         var body = {
@@ -1467,7 +1471,7 @@
          di-debounce 3 detik, dan dilewati bila isi data sama persis dengan
          yang terakhir tersimpan di cloud. */
       function jadwalkanCloudSave() {
-        if (!cloudTerhubung() || cloudSuppressSave || cloudBootPending) return;
+        if (!cloudTerhubung() || cloudSuppressSave || cloudBootPending || cloudTahanResetTotal) return;
         /* Galat server (mis. SYNC_TOKEN belum dikonfigurasi) tidak akan
            sembuh dengan coba ulang tiap 3 detik — tiap percobaan gagal
            me-render ulang halaman dan menghancurkan input yang sedang
@@ -1634,6 +1638,74 @@
           nama: state.nama.trim() || "(tanpa nama)", aksi: aksi
         });
         if (state.audit.length > 200) state.audit.length = 200;
+      }
+      /* Isi file cadangan JSON — dipakai tombol Ekspor cadangan dan tombol
+         "Unduh cadangan dulu" di dialog Reset Data (sama persis isinya). */
+      function bangunCadangan() {
+        return {
+          aplikasi: "sistem-jimpitan-warga-rt", versiCadangan: 8, dieksporPada: new Date().toISOString(),
+          settings: state.settings, pins: state.pins, users: state.users, houses: state.houses,
+          collections: state.collections, expenses: state.expenses,
+          warga: state.warga, iuran: state.iuran, aset: state.aset, surat: state.surat,
+          pinjam: state.pinjam, aduan: state.aduan, agenda: state.agenda,
+          umum: state.umum, umkm: state.umkm, audit: state.audit, seq: state.seq,
+          profil: state.profil, broadcast: state.broadcast, bayar: state.bayar,
+          groups: state.groups, schedules: state.schedules
+        };
+      }
+      /* ================= Reset Data (khusus Super Admin) =================
+         Dua mode:
+         - "operasional": hapus semua data kegiatan, akun (users + PIN peran)
+           dan pengaturan TETAP, Super Admin tetap masuk; state bersih
+           langsung tersinkron ke Turso lewat simpan otomatis biasa.
+         - "total": hapus SEMUA termasuk akun dan PIN peran; server Turso
+           dibersihkan dulu lewat aksi reset (baris state + semua sesi +
+           semua kunci percobaan), lalu perangkat ini kembali ke penyiapan
+           pertama. Unggah otomatis ditahan (cloudTahanResetTotal) sampai
+           penyiapan pertama selesai, supaya state kosong tidak kembali
+           ke cloud sebelum ada PIN baru.
+         Seq selalu dinaikkan supaya tab basi tidak menimpa hasil reset.
+         Audit log baru berisi SATU entri yang mencatat reset itu sendiri. */
+      var RESET_OPERASIONAL = ["houses", "collections", "expenses", "warga", "iuran", "aset", "surat", "pinjam", "aduan", "agenda", "umum", "umkm", "profil", "broadcast", "bayar", "groups", "schedules"];
+      function resetNaikkanSeq() { state.seq = (Number(state.seq) || 0) + 1; }
+      function resetOperasionalJalankan() {
+        RESET_OPERASIONAL.forEach(function (k) { state[k] = []; });
+        state.audit = [];
+        resetNaikkanSeq();
+        logAudit("Reset data operasional oleh Super Admin — seluruh data kegiatan dihapus; akun pengguna, PIN peran, dan pengaturan tetap.");
+        ui.resetMode = null; ui.resetKetik = ""; ui.resetError = "";
+        ui.resetDone = "Data operasional sudah direset. Rumah, profil warga, setoran, iuran, kas, dan seluruh modul kembali kosong; akun dan pengaturan tetap. Perubahan ini tersinkron ke perangkat lain.";
+        render();
+      }
+      function resetTotalSelesaikanLokal(namaSA, serverOk) {
+        RESET_OPERASIONAL.forEach(function (k) { state[k] = []; });
+        state.users = [];
+        state.pins = { petugas: "", bendahara: "", superadmin: "" };
+        state.settings = {
+          namaRt: "RT Kami", wilayah: "", nominalBaku: 500, nominalIuran: 20000,
+          namaSuperAdmin: "", saldoAwal: { utama: 0, proyek: 0, kematian: 0 }, rtList: [], pengurus: []
+        };
+        state.audit = [];
+        resetNaikkanSeq();
+        /* Entri audit dibuat langsung (bukan logAudit) karena peran/nama
+           sesi sudah dihapus di bawah — reset harus tetap terlacak. */
+        state.audit = [{
+          id: nextId(), waktu: new Date().toLocaleString("id-ID"),
+          peran: "Super Admin", nama: namaSA || "(Super Admin)",
+          aksi: "Reset total data oleh Super Admin — seluruh data, akun pengguna, dan PIN peran dihapus; aplikasi kembali ke penyiapan pertama."
+        }];
+        /* Sesi berakhir: keluar ke mode Warga, hapus kunci sesi perangkat
+           dan token sesi (sesi server sudah dihapus oleh aksi reset). */
+        state.role = "warga"; state.nama = ""; state.userId = null; state.tab = "beranda";
+        try { localStorage.removeItem(LS_SESI_KEY); } catch (e) { /* abaikan */ }
+        cloud.sessionToken = ""; cloud.serverNama = ""; simpanCloudCfg();
+        cloudTahanResetTotal = true;
+        ui.resetMode = null; ui.resetKetik = ""; ui.resetError = ""; ui.resetBusy = false;
+        ui.loginOpen = true; ui.serverLogin = false; ui.serverNoAccount = true;
+        ui.resetTotalPesan = serverOk
+          ? "Data sudah direset total — server Turso juga sudah dibersihkan. Buat PIN baru untuk penyiapan pertama."
+          : "Data di perangkat ini sudah direset total, tetapi perangkat ini tidak terhubung ke cloud — bila data pernah tersinkron, lakukan reset total juga dari perangkat yang terhubung, supaya data lama tidak kembali saat perangkat ini terhubung lagi.";
+        render();
       }
       /* ================= Kelompok & Jadwal Keliling =================
          Satu kelompok bertugas per tanggal. Hanya pengguna bernama
@@ -3870,6 +3942,7 @@
             loginBrand() +
             '<div class="login-body">' +
             '<h2 class="sec">Penyiapan pertama</h2>' +
+            (ui.resetTotalPesan ? '<p class="ok-note">' + esc(ui.resetTotalPesan) + "</p>" : "") +
             '<p class="sub">File aplikasi ini sengaja dibagikan <b>tanpa PIN bawaan apa pun</b>, supaya tidak ada kredensial yang bisa dibaca dari kode. Ini untuk perangkat pertama yang datanya belum ada di server: pemilik sistem (Super Admin) membuat PIN-nya sendiri di sini, sekali saja di perangkat ini. Catat dan berikan tiap PIN hanya kepada pemegang perannya. Bila data RT sudah ada di server, perangkat ini bisa langsung masuk dengan nama &amp; PIN lewat tombol di bawah.</p>' +
             '<div style="margin-top:1rem"><label class="lbl" for="setup-nama">Nama Super Admin</label>' +
             '<input id="setup-nama" type="text" class="inp" placeholder="mis. Pak Dariyo" value="' + esc(ui.setupNama) + '" data-bind="setupNama"></div>' +
@@ -3948,7 +4021,8 @@
             ["Data rumah, pengeluaran kas, ceklis iuran, modul RT/RW", "—", "—", "✓", "✓", "✓"],
             ["Mengelola Users (tambah pengguna & PIN pengguna)", "—", "—", "—", "—", "✓"],
             ["Pengaturan RT, ganti PIN semua peran, audit log", "—", "—", "—", "—", "✓"],
-            ["Impor cadangan (menimpa data) & deploy", "—", "—", "—", "—", "✓"]
+                        ["Impor cadangan (menimpa data) & deploy", "—", "—", "—", "—", "✓"],
+            ["Reset semua data", "—", "—", "—", "—", "✓"]
           ].map(function (r, i) {
             return "<tr><td class=\"no\">" + (i + 1) + "</td><td>" + r[0] + '</td><td class="c">' + r[1] + '</td><td class="c">' + r[2] + '</td><td class="c">' + r[3] + '</td><td class="c">' + r[4] + '</td><td class="c">' + r[5] + "</td></tr>";
           }).join("") +
@@ -3983,6 +4057,33 @@
             esc(a.waktu) + " · " + esc(a.peran) + " · " + esc(a.nama) + "</p></div></div>";
         });
         html += "</div></section>";
+        /* ---- Reset Data (khusus Super Admin) ---- */
+        html += '<section class="card" style="border:1px solid var(--danger)"><h2 class="sec" style="color:var(--danger)">Reset Data</h2>' +
+          '<p class="sub">Menghapus data secara <b>permanen</b> dan <b>tidak bisa dibatalkan</b>. Unduh cadangan dulu sebelum mereset — file cadangan bisa diimpor kembali bila diperlukan.</p>' +
+          '<div class="actions-row">' +
+          '<button type="button" class="btn btn-danger-ghost" data-act="reset-open" data-mode="operasional">Reset data operasional</button>' +
+          '<button type="button" class="btn btn-danger" data-act="reset-open" data-mode="total">Reset total</button>' +
+          '</div>' +
+          '<p class="sub" style="margin-top:.5rem"><b>Reset data operasional:</b> menghapus rumah, Profil Warga, setoran jimpitan, iuran/ceklist, arus kas, aset, layanan/surat/peminjaman/pengaduan, agenda, pengumuman, UMKM, broadcast, kelompok, dan jadwal — akun pengguna, PIN peran, dan pengaturan <b>tetap</b>, Super Admin tetap bisa masuk. ' +
+          '<b>Reset total:</b> menghapus <b>semuanya</b> termasuk akun pengguna dan PIN peran — aplikasi kembali ke penyiapan pertama, dan data di server Turso ikut dibersihkan.</p>' +
+          (ui.resetMode ? (function () {
+            var total = ui.resetMode === "total";
+            var siap = String(ui.resetKetik || "") === "RESET";
+            return '<div style="margin-top:1rem;padding:1rem;border:1px solid var(--danger);border-radius:.75rem;background:var(--danger-bg)">' +
+              '<p style="margin:0;font-weight:800;color:var(--danger)">Konfirmasi: ' + (total ? "Reset total" : "Reset data operasional") + '</p>' +
+              '<p class="sub" style="margin-top:.5rem">' + (total
+                ? "Akan dihapus: <b>seluruh data kegiatan, seluruh akun pengguna, seluruh PIN peran, dan seluruh pengaturan</b>. Server Turso juga dibersihkan (semua sesi perangkat lain berakhir) dan aplikasi kembali ke penyiapan pertama."
+                : "Akan dihapus: <b>seluruh data kegiatan</b> (rumah, Profil Warga, setoran, iuran, kas, aset, layanan, agenda, pengumuman, UMKM, broadcast, kelompok, jadwal). <b>Tetap:</b> akun pengguna, PIN peran, dan pengaturan.") + '</p>' +
+              '<div class="actions-row"><button type="button" class="btn btn-ghost" data-act="reset-backup">Unduh cadangan dulu</button></div>' +
+              '<div style="margin-top:.75rem"><label class="lbl" for="reset-ketik">Ketik RESET untuk mengonfirmasi (huruf besar semua)</label>' +
+              '<input id="reset-ketik" type="text" autocomplete="off" class="inp" placeholder="RESET" value="' + esc(ui.resetKetik || "") + '" data-bind="resetKetik"></div>' +
+              (ui.resetError ? '<p class="field-err">' + esc(ui.resetError) + "</p>" : "") +
+              '<div class="actions-row"><button type="button" class="btn btn-danger" data-act="reset-jalankan"' + (siap && !ui.resetBusy ? "" : " disabled") + '>' + (ui.resetBusy ? "Memproses…" : (total ? "Ya, reset total" : "Ya, reset data operasional")) + '</button>' +
+              '<button type="button" class="btn btn-ghost" data-act="reset-batal">Batal</button></div></div>';
+          })() : "") +
+          (ui.resetDone ? '<p class="ok-note" style="margin-top:.75rem">' + esc(ui.resetDone) + "</p>" : "") +
+          (ui.resetError && !ui.resetMode ? '<p class="field-err" style="margin-top:.75rem">' + esc(ui.resetError) + "</p>" : "") +
+          "</section>";
         /* Deploy & cadangan kini di dalam Pengaturan (dulu tab Deploy tersendiri). */
         html += viewDeploy();
         html += "</div>";
@@ -4885,18 +4986,53 @@
         }
         else if (act === "dl-vercel") { downloadFile("vercel.json", VERCEL_JSON, "application/json;charset=utf-8"); }
         else if (act === "dl-readme") { downloadFile("README-DEPLOY.md", readmeDeploy(), "text/markdown;charset=utf-8"); }
+        else if (act === "reset-open") {
+          if (!isSuper()) { ui.resetError = "Reset data hanya untuk Super Admin."; render(); return; }
+          ui.resetMode = t.getAttribute("data-mode") === "total" ? "total" : "operasional";
+          ui.resetKetik = ""; ui.resetError = ""; ui.resetDone = ""; render();
+          var rk = document.getElementById("reset-ketik"); if (rk) rk.focus();
+        }
+        else if (act === "reset-batal") { ui.resetMode = null; ui.resetKetik = ""; ui.resetError = ""; render(); }
+        else if (act === "reset-backup") {
+          if (!isSuper()) return;
+          downloadFile("cadangan-jimpitan-" + todayStr() + ".json", JSON.stringify(bangunCadangan(), null, 2), "application/json;charset=utf-8");
+          ui.backupMsg = "Cadangan diekspor. Simpan file JSON-nya di tempat aman.";
+          render();
+        }
+        else if (act === "reset-jalankan") {
+          /* Penegakan di handler, bukan hanya di tombol: peran lain dan
+             ketikan yang bukan RESET persis tidak bisa memicu reset. */
+          if (!isSuper()) { ui.resetError = "Reset data hanya untuk Super Admin."; render(); return; }
+          if (!ui.resetMode) return;
+          if (String(ui.resetKetik || "") !== "RESET") { ui.resetError = "Ketik RESET (huruf besar semua) untuk mengonfirmasi reset."; render(); return; }
+          if (ui.resetBusy) return;
+          if (ui.resetMode === "operasional") { resetOperasionalJalankan(); return; }
+          /* Reset total: bersihkan server dulu — bila server tidak bisa
+             dihubungi, reset DIBATALKAN dan data tidak diubah. Bila
+             perangkat ini tidak terhubung ke cloud, hanya data perangkat
+             ini yang dibersihkan (dengan catatan di pesan selesai). */
+          var namaSA = state.nama;
+          if (!cloudTerhubung()) { resetTotalSelesaikanLokal(namaSA, false); return; }
+          ui.resetBusy = true; ui.resetError = ""; render();
+          fetch(CLOUD_ENDPOINT, {
+            method: "POST", headers: { "Content-Type": "text/plain" },
+            body: JSON.stringify({ token: cloudAuthToken(), action: "reset" })
+          }).then(function (r) { return r.json(); }).then(function (res) {
+            ui.resetBusy = false;
+            if (!res || !res.ok) {
+              ui.resetError = "Reset di server gagal" + (res && res.error === "unauthorized" ? " — token ditolak server." : ". Data tidak diubah.");
+              render(); return;
+            }
+            resetTotalSelesaikanLokal(namaSA, true);
+          }).catch(function () {
+            ui.resetBusy = false;
+            ui.resetError = "Tidak dapat menghubungi server — reset total dibatalkan, data tidak diubah.";
+            render();
+          });
+        }
         else if (act === "backup-export") {
           if (!isPengurus()) { ui.loginOpen = true; ui.loginError = "Ekspor cadangan khusus pengurus. Masuk dulu dengan PIN."; render(); return; }
-          var data = {
-            aplikasi: "sistem-jimpitan-warga-rt", versiCadangan: 8, dieksporPada: new Date().toISOString(),
-            settings: state.settings, pins: state.pins, users: state.users, houses: state.houses,
-            collections: state.collections, expenses: state.expenses,
-            warga: state.warga, iuran: state.iuran, aset: state.aset, surat: state.surat,
-            pinjam: state.pinjam, aduan: state.aduan, agenda: state.agenda,
-            umum: state.umum, umkm: state.umkm, audit: state.audit, seq: state.seq,
-            profil: state.profil, broadcast: state.broadcast, bayar: state.bayar,
-            groups: state.groups, schedules: state.schedules
-          };
+          var data = bangunCadangan();
           downloadFile("cadangan-jimpitan-" + todayStr() + ".json", JSON.stringify(data, null, 2), "application/json;charset=utf-8");
           ui.backupMsg = "Cadangan diekspor. Simpan file JSON-nya di tempat aman.";
           render();
@@ -4918,6 +5054,7 @@
           return;
         }
         if (bind === "jdWargaCari") { ui.jdWargaCari = el.value; ui.focusId = "jd-warga-cari"; render(); return; }
+        if (bind === "resetKetik") { ui.resetKetik = el.value; ui.focusId = "reset-ketik"; render(); return; }
         if (bind.indexOf("jdPinWarga:") === 0) {
           var pp = bind.split(":");
           if (!ui.jdPinWarga[pp[1]]) ui.jdPinWarga[pp[1]] = { pin: "", conf: "" };
@@ -5126,6 +5263,9 @@
           state.settings.namaSuperAdmin = ui.setupNama.trim();
           ui.setupSuper = ""; ui.setupBendahara = ""; ui.setupPetugas = ""; ui.setupError = "";
           ui.loginOpen = false;
+          /* Penyiapan pertama selesai — unggah otomatis dibuka lagi (bila
+             sempat ditahan oleh reset total) supaya PIN baru tersinkron. */
+          cloudTahanResetTotal = false; ui.resetTotalPesan = "";
           logAudit("Penyiapan pertama selesai: PIN ketiga peran dibuat oleh pemilik; masuk sebagai Super Admin.");
           state.tab = "pengaturan";
           render(); window.scrollTo(0, 0);

@@ -10,6 +10,10 @@
 //        -> {ok:false, error:"conflict", serverUpdatedAt, serverDeviceId}
 //           bila updatedAt yang dikirim lebih lama dari yang tersimpan
 //           (last-write-wins; perangkat yang kalah harus mengunduh dulu)
+//   POST {action:"reset", token}            -> TANPA state: hapus baris
+//        sync_state + SEMUA sessions + SEMUA auth_locks (reset total).
+//        Hanya SYNC_TOKEN atau token sesi Super Admin. Sesudahnya
+//        load/auth menjawab no_account.
 //   Tanpa token yang benar -> {ok:false, error:"unauthorized"}
 //   POST {action:"auth", nama, pin}            -> TANPA token sinkron:
 //        memvalidasi nama+PIN terhadap state yang tersimpan di
@@ -392,6 +396,42 @@ async function handleAuth(db, res, body) {
   });
 }
 
+/* Reset total (khusus Super Admin): hapus baris state, SEMUA sesi dan
+   SEMUA kunci percobaan gagal — aplikasi kembali ke "no_account" dan
+   sesi di perangkat lain tidak berlaku lagi. POST saja.
+   Otorisasi: SYNC_TOKEN, atau token sesi yang perannya superadmin.
+   Token sesi peran lain -> unauthorized. Tanpa token -> unauthorized. */
+async function handleReset(db, res, body) {
+  if (!body || body.__badJson) {
+    send(res, 400, { ok: false, error: "bad_state" });
+    return;
+  }
+  const token = String((body && body.token) || "");
+  if (!token) {
+    send(res, 401, { ok: false, error: "unauthorized" });
+    return;
+  }
+  const syncToken = process.env.SYNC_TOKEN;
+  let ok = false;
+  if (syncToken && token === syncToken) ok = true;
+  if (!ok) {
+    const now = new Date().toISOString();
+    const rs = await db.execute({
+      sql: "SELECT peran FROM sessions WHERE token_hash = ? AND expires_at > ?",
+      args: [sha256Hex(token), now],
+    });
+    if (rs.rows.length > 0 && String(rs.rows[0].peran) === "superadmin") ok = true;
+  }
+  if (!ok) {
+    send(res, 401, { ok: false, error: "unauthorized" });
+    return;
+  }
+  await db.execute("DELETE FROM sync_state WHERE id = 1");
+  await db.execute("DELETE FROM sessions");
+  await db.execute("DELETE FROM auth_locks");
+  send(res, 200, { ok: true, reset: true });
+}
+
 async function handleSave(db, res, body) {
   if (!body || body.__badJson) {
     send(res, 400, { ok: false, error: "bad_state" });
@@ -459,6 +499,14 @@ module.exports = async function handler(req, res) {
 
     if (req.method === "POST" && body && body.action === "auth") {
       await handleAuth(db, res, body);
+      return;
+    }
+
+    // Aksi reset juga dicek sebelum pemeriksaan SYNC_TOKEN, supaya
+    // reset lewat token sesi Super Admin tetap bisa walau SYNC_TOKEN
+    // belum dikonfigurasi di server.
+    if (req.method === "POST" && body && body.action === "reset") {
+      await handleReset(db, res, body);
       return;
     }
 
