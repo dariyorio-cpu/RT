@@ -1854,6 +1854,11 @@
       function isBendahara() { return state.role === "bendahara" || state.role === "admin" || state.role === "superadmin"; }
       function isPengurus() { return state.role === "petugas" || state.role === "bendahara" || state.role === "admin" || state.role === "superadmin"; }
       function canCatat() { return isPengurus(); }              /* catat/ubah/batal setoran jimpitan */
+      /* Kunci setoran terverifikasi (keputusan pengguna 20 Nov 2026): setoran yang
+         sudah "terverifikasi" hanya boleh diubah/dibatalkan Super Admin. Setoran
+         "menunggu" tetap mengikuti aturan lama. */
+      function setoranTerkunci(c) { return !!c && c.status === "terverifikasi" && !isSuper(); }
+      var PESAN_TERKUNCI = "Setoran sudah terverifikasi — hanya Super Admin yang bisa mengubahnya.";
       function canKelola() { return isBendahara(); }            /* verifikasi, kas keluar, rumah, modul RT/RW */
       function canKelolaJadwal() { return state.role === "superadmin" || state.role === "admin"; } /* kelola kelompok tugas & jadwal keliling — Bendahara/Petugas hanya lihat */
       /* Visibilitas menu per peran (keputusan pengguna 20 Nov 2026):
@@ -2588,8 +2593,10 @@
                 if (bendaharaPlus && c.status === "menunggu") {
                   html += '<button type="button" class="btn btn-primary" data-act="verify" data-id="' + c.id + '">Verifikasi</button>';
                 }
-                if (cekJadwal.ok) html += '<button type="button" class="btn btn-ghost" data-act="custom-open" data-house="' + h.id + '" data-val="' + c.total + '">Ubah nominal</button>';
-                html += '<button type="button" class="btn btn-danger-ghost" data-act="void-open" data-id="' + c.id + '">Batalkan</button>';
+                var terkunci = setoranTerkunci(c);
+                if (!terkunci && cekJadwal.ok) html += '<button type="button" class="btn btn-ghost" data-act="custom-open" data-house="' + h.id + '" data-val="' + c.total + '">Ubah nominal</button>';
+                if (!terkunci) html += '<button type="button" class="btn btn-danger-ghost" data-act="void-open" data-id="' + c.id + '">Batalkan</button>';
+                if (terkunci) html += '<span style="font-size:.75rem;color:var(--dim)">Terkunci — hanya Super Admin bisa mengubah.</span>';
               }
             } else if (canWrite && cekJadwal.ok) {
               html += '<button type="button" class="btn btn-primary" data-act="catat" data-house="' + h.id + '" data-total="' + r.nominal + '">' + rp(r.nominal) + '</button>' +
@@ -3893,7 +3900,8 @@
           [
             ["Melihat beranda, transparansi kas, pengumuman, agenda, UMKM", "✓", "✓", "✓", "✓", "✓"],
             ["Mengajukan surat & pengaduan atas nama sendiri", "✓", "✓", "✓", "✓", "✓"],
-            ["Mencatat / mengubah / membatalkan setoran jimpitan", "—", "✓", "✓", "✓", "✓"],
+            ["Mencatat / mengubah / membatalkan setoran jimpitan (belum terverifikasi)", "—", "✓", "✓", "✓", "✓"],
+            ["Mengubah / membatalkan setoran yang sudah terverifikasi", "—", "—", "—", "—", "✓"],
             ["Verifikasi setoran", "—", "—", "✓", "✓", "✓"],
             ["Data rumah, pengeluaran kas, ceklis iuran, modul RT/RW", "—", "—", "✓", "✓", "✓"],
             ["Mengelola Users (tambah pengguna & PIN pengguna)", "—", "—", "—", "—", "✓"],
@@ -4255,6 +4263,10 @@
           if (c.houseId === houseId && c.tanggal === tanggal && c.status !== "batal") existing = c;
         });
         if (existing) {
+          /* Kunci setoran terverifikasi: hanya Super Admin yang boleh menimpa/
+             mengubahnya. Bila Super Admin mengubah, status kembali "menunggu"
+             dan diverifikasiOleh dikosongkan (angka berubah → verifikasi ulang). */
+          if (setoranTerkunci(existing)) { ui.error = PESAN_TERKUNCI; render(); return; }
           existing.total = total; existing.jimpitan = jimpitan; existing.kelebihan = kelebihan;
           existing.petugas = state.nama.trim(); existing.status = "menunggu"; existing.diverifikasiOleh = "";
           existing.jam = jamSekarang();
@@ -4456,9 +4468,17 @@
         else if (act === "custom-open") {
           var cekCo = cekJadwalCatat(todayStr());
           if (!cekCo.ok) { ui.error = cekCo.pesan; render(); return; }
-          ui.customFor = Number(t.getAttribute("data-house")); ui.customVal = t.getAttribute("data-val") || ""; ui.voidFor = null; render(); var ci = document.getElementById("nominal-" + ui.customFor); if (ci) { ci.focus(); ci.select(); } }
+          var coHouse = Number(t.getAttribute("data-house"));
+          var coC = null;
+          state.collections.forEach(function (cc) { if (cc.houseId === coHouse && cc.tanggal === todayStr() && cc.status !== "batal") coC = cc; });
+          if (setoranTerkunci(coC)) { ui.error = PESAN_TERKUNCI; render(); return; }
+          ui.customFor = coHouse; ui.customVal = t.getAttribute("data-val") || ""; ui.voidFor = null; render(); var ci = document.getElementById("nominal-" + ui.customFor); if (ci) { ci.focus(); ci.select(); } }
         else if (act === "custom-close") { ui.customFor = null; render(); }
-        else if (act === "void-open") { ui.voidFor = Number(t.getAttribute("data-id")); ui.voidReason = ""; ui.customFor = null; render(); var vi = document.getElementById("batal-" + ui.voidFor); if (vi) vi.focus(); }
+        else if (act === "void-open") {
+          var voC = null;
+          state.collections.forEach(function (cc) { if (cc.id === Number(t.getAttribute("data-id"))) voC = cc; });
+          if (setoranTerkunci(voC)) { ui.error = PESAN_TERKUNCI; render(); return; }
+          ui.voidFor = Number(t.getAttribute("data-id")); ui.voidReason = ""; ui.customFor = null; render(); var vi = document.getElementById("batal-" + ui.voidFor); if (vi) vi.focus(); }
         else if (act === "void-close") { ui.voidFor = null; render(); }
         else if (act === "verify") {
           if (!isBendahara()) { ui.error = "Verifikasi hanya oleh Bendahara atau Super Admin."; render(); return; }
@@ -5260,9 +5280,16 @@
           if (!canCatat()) return;
           if (!ui.voidReason.trim()) { ui.error = "Alasan pembatalan wajib diisi."; render(); return; }
           var id = Number(form.getAttribute("data-id"));
+          var vc = null;
+          state.collections.forEach(function (cc) { if (cc.id === id) vc = cc; });
+          if (!vc || vc.status === "batal") { ui.error = "Setoran tidak ditemukan atau sudah batal."; ui.voidFor = null; render(); return; }
+          if (setoranTerkunci(vc)) { ui.error = PESAN_TERKUNCI; ui.voidFor = null; render(); return; }
+          var vHouse = houseById(vc.houseId);
+          var vSudahVerifikasi = vc.status === "terverifikasi";
           state.collections.forEach(function (c) {
             if (c.id === id) { c.status = "batal"; c.alasanBatal = ui.voidReason.trim(); }
           });
+          logAudit("Setoran jimpitan dibatalkan: Rumah " + (vHouse ? vHouse.nomor : "?") + (vSudahVerifikasi ? " (sudah terverifikasi)" : "") + " — alasan: " + ui.voidReason.trim() + ".");
           ui.voidFor = null; ui.voidReason = ""; ui.error = "";
           render();
         }
