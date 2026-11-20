@@ -2750,7 +2750,7 @@
               return '<button type="button" class="btn ' + (dipilih ? "btn-primary" : "btn-ghost") + '" data-act="jd-anggota" data-id="' + u.id + '">' + esc(u.nama) + ' · ' + esc(ROLE_LABEL[u.peran] || u.peran) + (dipilih ? " ✓" : "") + '</button>';
             }).join("") + '</div></div>';
           /* Isian PIN untuk warga terpilih yang belum punya akun — akun Petugas
-             baru dibuat saat kelompok disimpan (PIN 4–6 angka, tidak boleh duplikat). */
+             baru dibuat saat kelompok disimpan (PIN 4–6 angka; PIN sama boleh, kecuali nama sama + PIN sama). */
           (ui.jdWargaBaru || []).forEach(function (pid) {
             var pw = profilById(Number(pid));
             if (!pw || cariPenggunaAktifByNama(pw.nama)) return;
@@ -2758,7 +2758,7 @@
             html += '<div style="margin-top:.75rem;padding:.75rem;border:1px dashed var(--line);border-radius:.75rem"><p style="margin:0 0 .5rem;font-weight:700">PIN untuk ' + esc(pw.nama) + ' (akun Petugas baru)</p><div class="grid2">' +
               fld("jd-pin-" + pw.id, "PIN (4–6 angka)", "jdPinWarga:" + pw.id + ":pin", dp.pin || "", "", "password") +
               fld("jd-pinconf-" + pw.id, "Konfirmasi PIN", "jdPinWarga:" + pw.id + ":conf", dp.conf || "", "", "password") +
-              '</div><p class="hint" style="margin:.5rem 0 0">PIN tidak boleh sama dengan PIN akun lain. Akun dibuat saat kelompok disimpan.</p></div>';
+              '</div><p class="hint" style="margin:.5rem 0 0">PIN boleh sama dengan PIN akun lain yang namanya berbeda. Yang tidak boleh: nama yang sama dengan PIN yang sama. Akun dibuat saat kelompok disimpan.</p></div>';
           });
           html += '<div class="actions-row" style="margin-top:.75rem"><button type="submit" class="btn btn-primary">' + (ui.jdGroupEdit != null ? "Simpan perubahan" : "Simpan kelompok") + '</button>' +
             (ui.jdGroupEdit != null ? '<button type="button" class="btn btn-ghost" data-act="jd-group-cancel">Batal</button>' : "") + '</div>' +
