@@ -416,6 +416,8 @@
       .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
       @media (min-width: 1024px) { .stats { grid-template-columns: repeat(4, 1fr); } }
       .stats3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.75rem; }
+      .stats5 { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
+      @media (min-width: 1024px) { .stats5 { grid-template-columns: repeat(5, 1fr); } }
       .stat .lab {
         font-size: 0.75rem; font-weight: 700; letter-spacing: 0.05em;
         text-transform: uppercase; color: var(--dim); margin: 0;
@@ -837,6 +839,7 @@
       .data-table tr.tbl-detail .s { margin: 0.125rem 0; }
       .data-table-keliling { min-width: 56rem; }
       .data-table-jadwal { min-width: 44rem; }
+      .data-table-users { min-width: 46rem; }
       .data-table-narrow { min-width: 34rem; }
       .data-table tbody tr.row-today:not(.tbl-detail) td { background: var(--accent-soft); }
       .data-table tbody tr.row-today:not(.tbl-detail) td:first-child { background: var(--accent-soft); }
@@ -1031,6 +1034,7 @@
         ukNama: "", ukPemilik: "", ukKategori: "", ukKontak: "", ukDesk: "",
         loginOpen: false, loginPin: "", loginNama: "", loginError: "",
         uNama: "", uPeran: "petugas", uPin: "", uPinConf: "", uHp: "", uError: "", uDone: false,
+        userCari: "", userFilterPeran: "semua", userAddOpen: false,
         userPinFor: null, userPinNew: "", userPinConf: "", userPinError: "", userPinDone: false,
         userResetFor: null, userResetError: "", userResetDone: false,
         profilPinOpen: false, profilPinLama: "", profilPinBaru: "", profilPinConf: "", profilPinError: "", profilPinDone: false,
@@ -2189,6 +2193,9 @@
         if (ui.loginOpen) html += viewLogin();
         if (ui.pfModal) html += viewProfilModal();
         if (ui.jdPopup) html += viewJadwalModal();
+        if (ui.userAddOpen) html += viewUserAddModal();
+        if (ui.userPinFor != null) html += viewUserPinModal();
+        if (ui.userResetFor != null) html += viewUserResetModal();
         if (ui.cloudConfirm) html += viewCloudConfirm();
         /* Bilah bawah HP hanya 3 tombol (Beranda, Jimpitan/Kas, Menu) —
            menu lengkap ada di lembar berkelompok (viewMenuSheet), supaya
@@ -4120,6 +4127,11 @@
       }
 
       /* ================= Users (khusus Super Admin) ================= */
+      function roleBadge(peran) {
+        if (peran === "admin") return badge("amber", "Admin");
+        if (peran === "bendahara") return badge("green", "Bendahara");
+        return badge("gray", ROLE_LABEL[peran] || peran);
+      }
       function viewUsers() {
         if (!isSuper()) {
           return '<div class="lock-note"><h2 class="sec">Khusus Super Admin</h2>' +
@@ -4127,9 +4139,92 @@
         }
         var html = '<div class="stack-lg">';
         html += '<section><h2 class="sec">Users — Pengguna Sistem</h2>' +
-          '<p class="sub">Tambah akun Admin, Bendahara, Petugas, atau Warga di sini — bukan saat penyiapan awal. Akun Warga hanya untuk pengguna Warga yang dibuat Super Admin. Tidak ada hapus pengguna: akun yang sudah tidak bertugas cukup dinonaktifkan, dan pengguna nonaktif tidak bisa masuk lagi.</p></section>';
-        /* Form tambah pengguna */
-        html += '<form class="card" data-form="user-add"><p style="margin:0 0 .75rem;font-weight:700">Tambah Pengguna</p><div class="grid2">' +
+          '<p class="sub">Akun Admin, Bendahara, Petugas, dan Warga dibuat Super Admin di sini. Akun tidak dihapus — cukup dinonaktifkan.</p></section>';
+        /* Strip ringkasan: total + jumlah per peran. Daftar diurutkan nama,
+           lalu disaring pencarian + peran — nomor urut mengikuti urutan tampil. */
+        var semua = state.users.slice().sort(function (a, b) { return a.nama.localeCompare(b.nama, "id"); });
+        var jmlPeran = function (r) { return semua.filter(function (u) { return u.peran === r; }).length; };
+        var uq = (ui.userCari || "").trim().toLowerCase();
+        var filtered = semua.filter(function (u) {
+          if (ui.userFilterPeran && ui.userFilterPeran !== "semua" && u.peran !== ui.userFilterPeran) return false;
+          if (!uq) return true;
+          return (u.nama || "").toLowerCase().indexOf(uq) >= 0 || (u.hp || "").toLowerCase().indexOf(uq) >= 0;
+        });
+        html += '<div class="stats5">' +
+          statCard("Total pengguna", String(semua.length)) +
+          statCard("Admin", String(jmlPeran("admin"))) +
+          statCard("Bendahara", String(jmlPeran("bendahara"))) +
+          statCard("Petugas", String(jmlPeran("petugas"))) +
+          statCard("Warga", String(jmlPeran("warga"))) +
+          '</div>';
+        /* Pencarian + saring peran + tombol tambah (popup premium). */
+        html += '<div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:flex-end;margin-top:1rem">' +
+          '<div style="flex:1;min-width:12rem"><label class="lbl" for="user-cari">Cari pengguna</label>' +
+          '<input id="user-cari" type="search" class="inp" placeholder="Nama atau HP…" value="' + esc(ui.userCari || "") + '" data-bind="userCari"></div>' +
+          '<div><label class="lbl" for="user-filter">Peran</label>' +
+          '<select id="user-filter" class="inp" data-bind-sel="userFilterPeran">' +
+          [["semua", "Semua peran"], ["admin", "Admin"], ["bendahara", "Bendahara"], ["petugas", "Petugas"], ["warga", "Warga"]].map(function (o) {
+            return '<option value="' + o[0] + '"' + (ui.userFilterPeran === o[0] ? " selected" : "") + ">" + o[1] + "</option>";
+          }).join("") + "</select></div>" +
+          '<button type="button" class="btn-add-round" data-act="user-add-open" title="Tambah Pengguna" aria-label="Tambah Pengguna"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button></div>';
+        if (ui.uDone) html += '<p class="ok-note" style="margin-top:.75rem">Pengguna ditambahkan — akun sudah bisa dipakai masuk dengan PIN-nya.</p>';
+        if (ui.userPinDone) html += '<p class="ok-note">PIN pengguna diperbarui.</p>';
+        if (ui.userResetDone) html += '<p class="ok-note">PIN pengguna direset ke PIN default.</p>';
+        /* Tabel premium pengguna — kolom pertama No. mengikuti urutan tampil. */
+        html += '<section><h2 class="sec">Pengguna tambahan (' + filtered.length + ')</h2>';
+        if (semua.length === 0) {
+          html += '<p class="empty">Belum ada pengguna tambahan — semua pengurus masih memakai akun bawaan peran di bawah.</p>';
+        } else if (filtered.length === 0) {
+          html += '<p class="empty">Tidak ada pengguna yang cocok dengan pencarian.</p>';
+        } else {
+          var nAktif = filtered.filter(function (u) { return u.aktif !== false; }).length;
+          html += '<p class="sub" style="margin-top:.25rem">Menampilkan ' + filtered.length + ' pengguna · ' + nAktif + ' aktif · ' + (filtered.length - nAktif) + ' nonaktif</p>';
+          html += '<div class="tbl-wrap" style="margin-top:.5rem"><table class="data-table data-table-users"><thead><tr>' +
+            '<th class="no">No.</th><th>Nama</th><th>Peran</th><th>HP</th><th>Status</th><th>PIN</th><th>Aksi</th>' +
+            '</tr></thead><tbody>';
+          filtered.forEach(function (u, ix) {
+            var aktif = u.aktif !== false;
+            html += '<tr><td class="no">' + (ix + 1) + '</td>' +
+              '<td><strong>' + esc(u.nama) + '</strong><br><span style="font-size:.75rem;color:var(--dim)">Dibuat ' + esc(u.dibuat ? fmtSingkat(u.dibuat) : "-") + '</span></td>' +
+              '<td>' + roleBadge(u.peran) + '</td>' +
+              '<td class="cell-mono nowrap">' + esc(u.hp || "—") + '</td>' +
+              '<td>' + statusBadge(aktif ? "Aktif" : "Nonaktif") + '</td>' +
+              '<td>' + (u.pinReset ? badge("amber", "PIN direset") : "—") + '</td>' +
+              '<td><div class="tbl-actions">' +
+              '<button type="button" class="btn btn-ghost" data-act="user-pin-open" data-id="' + u.id + '">Ubah PIN</button>' +
+              '<button type="button" class="btn btn-ghost" data-act="user-reset-open" data-id="' + u.id + '">Reset PIN</button>' +
+              '<button type="button" class="btn ' + (aktif ? "btn-danger-ghost" : "btn-primary") + '" data-act="user-toggle" data-id="' + u.id + '">' + (aktif ? "Nonaktifkan" : "Aktifkan") + '</button></div></td></tr>';
+          });
+          html += '</tbody></table></div>';
+        }
+        html += "</section>";
+        /* Akun bawaan peran (read-only) — tabel ringkas dengan gaya yang sama. */
+        html += '<section><h2 class="sec">Akun bawaan peran (dari penyiapan pertama)</h2>' +
+          '<p class="sub">Akun ini dibuat saat penyiapan pertama dan tidak bisa diubah di sini — PIN-nya tetap diganti lewat Pengaturan.</p>' +
+          '<div class="tbl-wrap" style="margin-top:.5rem"><table class="data-table data-table-users"><thead><tr>' +
+          '<th class="no">No.</th><th>Peran</th><th>Keterangan</th><th>Status</th>' +
+          '</tr></thead><tbody>';
+        ["superadmin", "bendahara", "petugas"].forEach(function (r, ix) {
+          html += '<tr><td class="no">' + (ix + 1) + '</td><td><strong>' + esc(ROLE_LABEL[r]) + '</strong></td>' +
+            '<td>Akun bawaan peran — dipakai semua pemegang peran itu</td>' +
+            '<td>' + statusBadge(state.pins[r] ? "Aktif" : "Belum dibuat") + '</td></tr>';
+        });
+        html += '</tbody></table></div></section>';
+        html += "</div>";
+        return html;
+      }
+
+      /* Popup premium tambah pengguna — formulir yang sama seperti form inline
+         sebelumnya, dipindah ke modal. Klik backdrop TIDAK menutup (konsisten
+         dengan modal login/profil/jadwal) supaya isian tidak hilang tak sengaja. */
+      function viewUserAddModal() {
+        return '<div class="modal-overlay"><form class="modal-card form-modal" data-form="user-add">' +
+          '<button type="button" class="modal-x" data-act="user-add-close" title="Tutup" aria-label="Tutup">' +
+          '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>' +
+          '<h2 class="sec">Tambah Pengguna</h2>' +
+          '<div class="form-body">' +
+          '<p class="sub" style="margin-bottom:.75rem">Buat akun Admin, Bendahara, Petugas, atau Warga. Berikan PIN hanya kepada pemilik akunnya.</p>' +
+          '<div class="grid2">' +
           fld("u-nama", "Nama pengguna", "uNama", ui.uNama, "mis. Pak Budi") +
           '<div><label class="lbl" for="u-peran">Peran</label><select id="u-peran" class="inp" data-bind-sel="uPeran">' +
           ["admin", "bendahara", "petugas", "warga"].map(function (r) {
@@ -4140,56 +4235,48 @@
           fld("u-hp", "No. HP / WhatsApp (boleh kosong)", "uHp", ui.uHp, "08…") +
           "</div>" +
           (ui.uError ? '<p class="field-err">' + esc(ui.uError) + "</p>" : "") +
-          (ui.uDone ? '<p class="ok-note">Pengguna ditambahkan — akun sudah bisa dipakai masuk dengan PIN-nya.</p>' : "") +
-          '<div class="actions-row"><button type="submit" class="btn btn-primary">Simpan pengguna</button></div>' +
-          '<p class="hint">PIN pengguna disimpan dengan cara yang sama seperti PIN peran di versi statis ini (di perangkat, ikut tersinkron ke Turso dan tercakup cadangan JSON). Berikan PIN hanya kepada pemilik akunnya.</p></form>';
-        /* Tabel pengguna */
-        html += '<section><h2 class="sec">Pengguna tambahan (' + state.users.length + ')</h2><div class="list" style="margin-top:.75rem">';
-        if (state.users.length === 0) html += '<p class="empty">Belum ada pengguna tambahan — semua pengurus masih memakai akun bawaan peran di bawah.</p>';
-        state.users.slice().sort(function (a, b) { return a.nama.localeCompare(b.nama, "id"); }).forEach(function (u) {
-          var aktif = u.aktif !== false;
-          html += '<div class="card" style="padding:.75rem 1rem"><div style="display:flex;justify-content:space-between;gap:.75rem;align-items:flex-start;flex-wrap:wrap"><div>' +
-            '<p class="t" style="font-size:.9375rem;font-weight:700;margin:0">' + esc(u.nama) + '</p>' +
-            '<p class="s">' + esc(ROLE_LABEL[u.peran] || u.peran) + (u.hp ? " · " + esc(u.hp) : "") + " · dibuat " + esc(u.dibuat ? fmtSingkat(u.dibuat) : "-") + "</p></div>" +
-            '<div style="display:flex;gap:.375rem;flex-wrap:wrap;justify-content:flex-end;align-items:center">' +
-            statusBadge(aktif ? "Aktif" : "Nonaktif") +
-            (u.pinReset ? badge("amber", "PIN direset") : "") +
-            '<button type="button" class="btn btn-ghost" data-act="user-pin-open" data-id="' + u.id + '">Ubah PIN</button>' +
-            '<button type="button" class="btn btn-ghost" data-act="user-reset-open" data-id="' + u.id + '">Reset PIN</button>' +
-            '<button type="button" class="btn btn-danger-ghost" data-act="user-toggle" data-id="' + u.id + '">' + (aktif ? "Nonaktifkan" : "Aktifkan") + "</button></div></div>";
-          if (ui.userPinFor === u.id) {
-            html += '<form class="inline-form" data-form="user-pin" style="margin-top:.75rem">' +
-              '<div class="grid2"><div><label class="lbl" for="upin-new">PIN baru ' + esc(u.nama) + ' (4–6 angka)</label>' +
-              '<input id="upin-new" type="password" inputmode="numeric" autocomplete="off" class="inp" value="' + esc(ui.userPinNew || "") + '" data-bind="userPinNew"></div>' +
-              '<div><label class="lbl" for="upin-conf">Konfirmasi PIN baru</label>' +
-              '<input id="upin-conf" type="password" inputmode="numeric" autocomplete="off" class="inp" value="' + esc(ui.userPinConf || "") + '" data-bind="userPinConf"></div></div>' +
-              (ui.userPinError ? '<p class="field-err">' + esc(ui.userPinError) + "</p>" : "") +
-              '<div class="actions-row"><button type="submit" class="btn btn-primary">Simpan PIN baru</button>' +
-              '<button type="button" class="btn btn-ghost" data-act="user-pin-close">Batal</button></div></form>';
-          }
-          if (ui.userResetFor === u.id) {
-            html += '<form class="inline-form" data-form="user-reset" style="margin-top:.75rem"><p style="margin:0 0 .5rem;font-weight:700">Reset PIN ' + esc(u.nama) + '?</p>' +
-              '<p class="sub" style="margin:0 0 .75rem">PIN-nya akan direset menjadi PIN default 123456. Beritahukan PIN ini hanya kepada pemilik akun dan minta ia segera menggantinya lewat Profil Saya → Ganti PIN Saya.</p>' +
-              (ui.userResetError ? '<p class="field-err">' + esc(ui.userResetError) + '</p>' : '') +
-              '<div class="actions-row"><button type="submit" class="btn btn-primary">Ya, reset PIN</button>' +
-              '<button type="button" class="btn btn-ghost" data-act="user-reset-close">Batal</button></div></form>';
-          }
-          html += "</div>";
-        });
-        if (ui.userPinDone) html += '<p class="ok-note">PIN pengguna diperbarui.</p>';
-        if (ui.userResetDone) html += '<p class="ok-note">PIN pengguna direset ke PIN default.</p>';
-        html += "</div></section>";
-        /* Akun bawaan peran (read-only) */
-        html += '<section><h2 class="sec">Akun bawaan peran (dari penyiapan pertama)</h2>' +
-          '<p class="sub">Akun ini dibuat saat penyiapan pertama dan tidak bisa diubah di sini — PIN-nya tetap diganti lewat Pengaturan.</p><div class="list" style="margin-top:.75rem">';
-        ["superadmin", "bendahara", "petugas"].forEach(function (r) {
-          html += '<div class="row-item"><div><p class="t">' + ROLE_LABEL[r] + '</p><p class="s">Akun bawaan peran — dipakai semua pemegang peran itu</p></div>' +
-            '<div style="display:flex;gap:.375rem;flex-wrap:wrap;justify-content:flex-end;align-items:center">' +
-            statusBadge(state.pins[r] ? "Aktif" : "Belum dibuat") + "</div></div>";
-        });
-        html += "</div></section>";
-        html += "</div>";
-        return html;
+          '<div class="actions-row"><button type="submit" class="btn btn-primary">Simpan pengguna</button>' +
+          '<button type="button" class="btn btn-ghost" data-act="user-add-close">Batal</button></div>' +
+          '<p class="hint">PIN pengguna disimpan dengan cara yang sama seperti PIN peran di versi statis ini (di perangkat, ikut tersinkron ke Turso dan tercakup cadangan JSON).</p>' +
+          '</div></form></div>';
+      }
+
+      /* Popup premium Ubah PIN pengguna (Super Admin mengubah tanpa PIN lama). */
+      function viewUserPinModal() {
+        var up = null;
+        state.users.forEach(function (x) { if (x.id === ui.userPinFor) up = x; });
+        if (!up) return "";
+        return '<div class="modal-overlay"><form class="modal-card form-modal" data-form="user-pin">' +
+          '<button type="button" class="modal-x" data-act="user-pin-close" title="Tutup" aria-label="Tutup">' +
+          '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>' +
+          '<h2 class="sec">Ubah PIN ' + esc(up.nama) + '</h2>' +
+          '<div class="form-body">' +
+          '<p class="sub" style="margin-bottom:.75rem">' + esc(ROLE_LABEL[up.peran] || up.peran) + ' · PIN baru 4–6 angka. Bila PIN pengguna ini sebelumnya direset, penanda "PIN direset" akan hilang setelah PIN diganti.</p>' +
+          '<div class="grid2"><div><label class="lbl" for="upin-new">PIN baru (4–6 angka)</label>' +
+          '<input id="upin-new" type="password" inputmode="numeric" autocomplete="off" class="inp" value="' + esc(ui.userPinNew || "") + '" data-bind="userPinNew"></div>' +
+          '<div><label class="lbl" for="upin-conf">Konfirmasi PIN baru</label>' +
+          '<input id="upin-conf" type="password" inputmode="numeric" autocomplete="off" class="inp" value="' + esc(ui.userPinConf || "") + '" data-bind="userPinConf"></div></div>' +
+          (ui.userPinError ? '<p class="field-err">' + esc(ui.userPinError) + "</p>" : "") +
+          '<div class="actions-row"><button type="submit" class="btn btn-primary">Simpan PIN baru</button>' +
+          '<button type="button" class="btn btn-ghost" data-act="user-pin-close">Batal</button></div>' +
+          '</div></form></div>';
+      }
+
+      /* Popup premium konfirmasi Reset PIN pengguna ke PIN default 123456. */
+      function viewUserResetModal() {
+        var ur = null;
+        state.users.forEach(function (x) { if (x.id === ui.userResetFor) ur = x; });
+        if (!ur) return "";
+        return '<div class="modal-overlay"><form class="modal-card form-modal" data-form="user-reset">' +
+          '<button type="button" class="modal-x" data-act="user-reset-close" title="Tutup" aria-label="Tutup">' +
+          '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>' +
+          '<h2 class="sec">Reset PIN ' + esc(ur.nama) + '?</h2>' +
+          '<div class="form-body">' +
+          '<p class="sub" style="margin-bottom:.75rem">PIN-nya akan direset menjadi PIN default 123456. Beritahukan PIN ini hanya kepada pemilik akun dan minta ia segera menggantinya lewat Profil Saya → Ganti PIN Saya.</p>' +
+          (ui.userResetError ? '<p class="field-err">' + esc(ui.userResetError) + '</p>' : '') +
+          '<div class="actions-row"><button type="submit" class="btn btn-primary">Ya, reset PIN</button>' +
+          '<button type="button" class="btn btn-ghost" data-act="user-reset-close">Batal</button></div>' +
+          '</div></form></div>';
       }
 
       /* ================= Deploy ke Vercel ================= */
@@ -4889,6 +4976,13 @@
           ui.cloudMsg = "Sinkronisasi ditunda — bila siap, pakai tombol Unggah/Unduh di bagian Sinkronisasi Cloud.";
           render();
         }
+        else if (act === "user-add-open") {
+          if (!isSuper()) return;
+          ui.uNama = ""; ui.uPeran = "petugas"; ui.uPin = ""; ui.uPinConf = ""; ui.uHp = "";
+          ui.uError = ""; ui.uDone = false; ui.userAddOpen = true;
+          render();
+        }
+        else if (act === "user-add-close") { ui.userAddOpen = false; ui.uError = ""; render(); }
         else if (act === "user-pin-open") {
           if (!isSuper()) return;
           ui.userPinFor = Number(t.getAttribute("data-id"));
@@ -5049,6 +5143,7 @@
         }
         if (bind === "iuranBulan") { ui.iuranBulan = el.value || monthStr(); render(); return; }
         if (bind === "pfCari") { ui.pfCari = el.value; ui.focusId = "pf-cari"; render(); return; }
+        if (bind === "userCari") { ui.userCari = el.value; ui.focusId = "user-cari"; render(); return; }
         if (bind === "loginNama") {
           ui.loginNama = el.value;
           return;
@@ -5081,6 +5176,7 @@
           ui.jdWargaBaru = []; ui.jdPinWarga = {}; ui.jdError = "";
           render(); return;
         }
+        if (selBind === "userFilterPeran") { ui.userFilterPeran = el.value; render(); return; }
         if (selBind && selBind in ui) { ui[selBind] = el.value; return; }
         var bind = el.getAttribute && el.getAttribute("data-bind");
         if (bind === "fStatus") { ui.fStatus = el.value; return; }
@@ -5386,7 +5482,7 @@
             hp: (ui.uHp || "").trim(), aktif: true, dibuat: todayStr()
           });
           logAudit("Pengguna ditambah: " + ui.uNama.trim() + " (" + ROLE_LABEL[ui.uPeran] + ").");
-          ui.uNama = ""; ui.uPin = ""; ui.uPinConf = ""; ui.uHp = ""; ui.uError = ""; ui.uDone = true;
+          ui.uNama = ""; ui.uPin = ""; ui.uPinConf = ""; ui.uHp = ""; ui.uError = ""; ui.uDone = true; ui.userAddOpen = false;
           render();
         }
         else if (kind === "user-pin") {
