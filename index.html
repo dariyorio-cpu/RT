@@ -995,6 +995,7 @@
         loginOpen: false, loginPin: "", loginNama: "", loginError: "",
         uNama: "", uPeran: "petugas", uPin: "", uPinConf: "", uHp: "", uError: "", uDone: false,
         userPinFor: null, userPinNew: "", userPinConf: "", userPinError: "", userPinDone: false,
+        userResetFor: null, userResetError: "", userResetDone: false,
         profilPinOpen: false, profilPinLama: "", profilPinBaru: "", profilPinConf: "", profilPinError: "", profilPinDone: false,
         setupNama: "", setupSuper: "", setupBendahara: "", setupPetugas: "", setupError: "",
         serverLogin: true, serverNama: "", serverPin: "", serverError: "", serverBusy: false, serverNoAccount: false,
@@ -3888,16 +3889,31 @@
         return html;
       }
 
-      /* PIN pengguna tidak boleh sama dengan PIN akun lain (akun bawaan peran
-         maupun pengguna bernama lain) — satu PIN hanya untuk satu akun. */
-      function pinSudahDipakai(pin, kecualiId) {
+      /* PIN default saat Super Admin mereset PIN seorang pengguna. */
+      var PIN_DEFAULT = "123456";
+
+      /* Aturan PIN yang tepat (keputusan pengguna):
+         - PIN pengguna bernama hanya bertabrakan bila ada pengguna bernama
+           LAIN dengan NAMA YANG SAMA (trim, case-insensitive) yang memakai
+           PIN itu — login mencocokkan Nama dulu baru PIN, jadi PIN sama
+           dengan nama berbeda diizinkan.
+         - PIN peran bawaan harus berbeda antar peran (Super Admin /
+           Bendahara / Petugas), karena login peran hanya mencocokkan PIN.
+           PIN peran BOLEH sama dengan PIN pengguna bernama. */
+      function pinNamaSudahDipakai(pin, nama, kecualiId) {
+        var p = String(pin), nm = String(nama || "").trim().toLowerCase();
+        var ada = false;
+        (state.users || []).forEach(function (u) {
+          if (String(u.pin) === p && String(u.nama || "").trim().toLowerCase() === nm &&
+              String(u.id) !== String(kecualiId == null ? "" : kecualiId)) ada = true;
+        });
+        return ada;
+      }
+      function pinPeranSudahDipakai(pin, kecualiPeran) {
         var p = String(pin);
         var ada = false;
-        ["petugas", "bendahara", "superadmin"].forEach(function (k) {
-          if (state.pins[k] && String(state.pins[k]) === p) ada = true;
-        });
-        (state.users || []).forEach(function (u) {
-          if (String(u.pin) === p && String(u.id) !== String(kecualiId == null ? "" : kecualiId)) ada = true;
+        ["superadmin", "bendahara", "petugas"].forEach(function (k) {
+          if (k !== kecualiPeran && state.pins[k] && String(state.pins[k]) === p) ada = true;
         });
         return ada;
       }
@@ -3936,7 +3952,9 @@
             '<p class="s">' + esc(ROLE_LABEL[u.peran] || u.peran) + (u.hp ? " · " + esc(u.hp) : "") + " · dibuat " + esc(u.dibuat ? fmtSingkat(u.dibuat) : "-") + "</p></div>" +
             '<div style="display:flex;gap:.375rem;flex-wrap:wrap;justify-content:flex-end;align-items:center">' +
             statusBadge(aktif ? "Aktif" : "Nonaktif") +
+            (u.pinReset ? badge("amber", "PIN direset") : "") +
             '<button type="button" class="btn btn-ghost" data-act="user-pin-open" data-id="' + u.id + '">Ubah PIN</button>' +
+            '<button type="button" class="btn btn-ghost" data-act="user-reset-open" data-id="' + u.id + '">Reset PIN</button>' +
             '<button type="button" class="btn btn-danger-ghost" data-act="user-toggle" data-id="' + u.id + '">' + (aktif ? "Nonaktifkan" : "Aktifkan") + "</button></div></div>";
           if (ui.userPinFor === u.id) {
             html += '<form class="inline-form" data-form="user-pin" style="margin-top:.75rem">' +
@@ -3948,9 +3966,17 @@
               '<div class="actions-row"><button type="submit" class="btn btn-primary">Simpan PIN baru</button>' +
               '<button type="button" class="btn btn-ghost" data-act="user-pin-close">Batal</button></div></form>';
           }
+          if (ui.userResetFor === u.id) {
+            html += '<form class="inline-form" data-form="user-reset" style="margin-top:.75rem"><p style="margin:0 0 .5rem;font-weight:700">Reset PIN ' + esc(u.nama) + '?</p>' +
+              '<p class="sub" style="margin:0 0 .75rem">PIN-nya akan direset menjadi PIN default 123456. Beritahukan PIN ini hanya kepada pemilik akun dan minta ia segera menggantinya lewat Profil Saya → Ganti PIN Saya.</p>' +
+              (ui.userResetError ? '<p class="field-err">' + esc(ui.userResetError) + '</p>' : '') +
+              '<div class="actions-row"><button type="submit" class="btn btn-primary">Ya, reset PIN</button>' +
+              '<button type="button" class="btn btn-ghost" data-act="user-reset-close">Batal</button></div></form>';
+          }
           html += "</div>";
         });
         if (ui.userPinDone) html += '<p class="ok-note">PIN pengguna diperbarui.</p>';
+        if (ui.userResetDone) html += '<p class="ok-note">PIN pengguna direset ke PIN default.</p>';
         html += "</div></section>";
         /* Akun bawaan peran (read-only) */
         html += '<section><h2 class="sec">Akun bawaan peran (dari penyiapan pertama)</h2>' +
@@ -4654,9 +4680,17 @@
           if (!isSuper()) return;
           ui.userPinFor = Number(t.getAttribute("data-id"));
           ui.userPinNew = ""; ui.userPinConf = ""; ui.userPinError = ""; ui.userPinDone = false;
+          ui.userResetFor = null; ui.userResetError = "";
           render();
         }
         else if (act === "user-pin-close") { ui.userPinFor = null; ui.userPinError = ""; render(); }
+        else if (act === "user-reset-open") {
+          if (!isSuper()) return;
+          ui.userResetFor = Number(t.getAttribute("data-id"));
+          ui.userResetError = ""; ui.userResetDone = false; ui.userPinFor = null; ui.userPinError = "";
+          render();
+        }
+        else if (act === "user-reset-close") { ui.userResetFor = null; ui.userResetError = ""; render(); }
         else if (act === "user-toggle") {
           if (!isSuper()) return;
           var tid = Number(t.getAttribute("data-id"));
@@ -4910,6 +4944,8 @@
             return !/^[0-9]{4,6}$/.test((ui[p[0]] || "").trim());
           });
           if (pinBad.length) { ui.setupError = "PIN " + pinBad[0][1] + " harus 4–6 angka. Semua PIN wajib dibuat sekarang."; render(); return; }
+          var pinSet = [ui.setupSuper.trim(), ui.setupBendahara.trim(), ui.setupPetugas.trim()];
+          if (pinSet[0] === pinSet[1] || pinSet[0] === pinSet[2] || pinSet[1] === pinSet[2]) { ui.setupError = "PIN ketiga peran harus berbeda satu sama lain — login peran hanya mencocokkan PIN."; render(); return; }
           state.pins.superadmin = ui.setupSuper.trim();
           state.pins.bendahara = ui.setupBendahara.trim();
           state.pins.petugas = ui.setupPetugas.trim();
@@ -5007,6 +5043,15 @@
             if (v && !/^[0-9]{4,6}$/.test(v)) pinErr = "PIN " + p[2] + " harus 4–6 angka.";
           });
           if (pinErr) { ui.pinError = pinErr; ui.pinDone = false; render(); return; }
+          var hasilPins = { superadmin: state.pins.superadmin, bendahara: state.pins.bendahara, petugas: state.pins.petugas };
+          [["pinPetugas", "petugas"], ["pinBendahara", "bendahara"], ["pinSuper", "superadmin"]].forEach(function (p) {
+            var vv = (ui[p[0]] || "").trim();
+            if (vv) hasilPins[p[1]] = vv;
+          });
+          if (hasilPins.superadmin && hasilPins.bendahara && hasilPins.petugas &&
+              (hasilPins.superadmin === hasilPins.bendahara || hasilPins.superadmin === hasilPins.petugas || hasilPins.bendahara === hasilPins.petugas)) {
+            ui.pinError = "PIN ketiga peran harus berbeda satu sama lain — login peran hanya mencocokkan PIN."; ui.pinDone = false; render(); return;
+          }
           var changed = [];
           [["pinPetugas", "petugas", "Petugas"], ["pinBendahara", "bendahara", "Bendahara"], ["pinSuper", "superadmin", "Super Admin"]].forEach(function (p) {
             var v = (ui[p[0]] || "").trim();
@@ -5023,7 +5068,7 @@
           if (["admin", "bendahara", "petugas", "warga"].indexOf(ui.uPeran) < 0) { ui.uError = "Peran tidak dikenal."; render(); return; }
           if (!/^[0-9]{4,6}$/.test((ui.uPin || "").trim())) { ui.uError = "PIN harus 4–6 angka."; render(); return; }
           if ((ui.uPin || "").trim() !== (ui.uPinConf || "").trim()) { ui.uError = "Konfirmasi PIN tidak sama."; render(); return; }
-          if (pinSudahDipakai(ui.uPin.trim(), null)) { ui.uError = "PIN itu sudah dipakai akun lain — pakai PIN yang berbeda."; render(); return; }
+          if (pinNamaSudahDipakai(ui.uPin.trim(), ui.uNama.trim(), null)) { ui.uError = "Sudah ada akun bernama " + ui.uNama.trim() + " yang memakai PIN itu — pakai PIN yang berbeda."; render(); return; }
           state.users.push({
             id: nextId(), nama: ui.uNama.trim(), peran: ui.uPeran, pin: ui.uPin.trim(),
             hp: (ui.uHp || "").trim(), aktif: true, dibuat: todayStr()
@@ -5039,10 +5084,21 @@
           if (!up) { ui.userPinFor = null; render(); return; }
           if (!/^[0-9]{4,6}$/.test((ui.userPinNew || "").trim())) { ui.userPinError = "PIN baru harus 4–6 angka."; render(); return; }
           if ((ui.userPinNew || "").trim() !== (ui.userPinConf || "").trim()) { ui.userPinError = "Konfirmasi PIN tidak sama."; render(); return; }
-          if (pinSudahDipakai(ui.userPinNew.trim(), up.id)) { ui.userPinError = "PIN itu sudah dipakai akun lain — pakai PIN yang berbeda."; render(); return; }
-          up.pin = ui.userPinNew.trim();
+          if (pinNamaSudahDipakai(ui.userPinNew.trim(), up.nama, up.id)) { ui.userPinError = "Sudah ada akun bernama " + up.nama + " yang memakai PIN itu — pakai PIN yang berbeda."; render(); return; }
+          up.pin = ui.userPinNew.trim(); up.pinReset = false;
           logAudit("PIN pengguna diubah: " + up.nama + " (" + ROLE_LABEL[up.peran] + ").");
           ui.userPinFor = null; ui.userPinNew = ""; ui.userPinConf = ""; ui.userPinError = ""; ui.userPinDone = true;
+          render();
+        }
+        else if (kind === "user-reset") {
+          if (!isSuper()) return;
+          var ur = null;
+          state.users.forEach(function (x) { if (x.id === ui.userResetFor) ur = x; });
+          if (!ur) { ui.userResetFor = null; render(); return; }
+          if (pinNamaSudahDipakai(PIN_DEFAULT, ur.nama, ur.id)) { ui.userResetError = "PIN default 123456 sudah dipakai oleh akun lain bernama " + ur.nama + " — reset dibatalkan, PIN " + ur.nama + " tidak berubah."; render(); return; }
+          ur.pin = PIN_DEFAULT; ur.pinReset = true;
+          logAudit("Reset PIN pengguna " + ur.nama + " (" + ROLE_LABEL[ur.peran] + ") ke PIN default.");
+          ui.userResetFor = null; ui.userResetError = ""; ui.userResetDone = true;
           render();
         }
         else if (kind === "profil-pin") {
@@ -5057,8 +5113,10 @@
           if ((ui.profilPinLama || "").trim() !== pinKini || pinKini === "") { ui.profilPinError = "PIN lama salah."; render(); return; }
           if (!/^[0-9]{4,6}$/.test((ui.profilPinBaru || "").trim())) { ui.profilPinError = "PIN baru harus 4–6 angka."; render(); return; }
           if ((ui.profilPinBaru || "").trim() !== (ui.profilPinConf || "").trim()) { ui.profilPinError = "Konfirmasi PIN tidak sama."; render(); return; }
-          if (pinSudahDipakai((ui.profilPinBaru || "").trim(), me ? me.id : null)) { ui.profilPinError = "PIN itu sudah dipakai akun lain — pakai PIN yang berbeda."; render(); return; }
-          if (me) { me.pin = (ui.profilPinBaru || "").trim(); logAudit("PIN sendiri diganti oleh " + me.nama + " (" + ROLE_LABEL[me.peran] + ") lewat Profil Saya."); }
+          if (me) {
+            if (pinNamaSudahDipakai((ui.profilPinBaru || "").trim(), me.nama, me.id)) { ui.profilPinError = "Sudah ada akun bernama " + me.nama + " yang memakai PIN itu — pakai PIN yang berbeda."; render(); return; }
+          } else if (pinPeranSudahDipakai((ui.profilPinBaru || "").trim(), state.role)) { ui.profilPinError = "PIN itu sudah dipakai peran lain — PIN tiap peran harus berbeda."; render(); return; }
+          if (me) { me.pin = (ui.profilPinBaru || "").trim(); me.pinReset = false; logAudit("PIN sendiri diganti oleh " + me.nama + " (" + ROLE_LABEL[me.peran] + ") lewat Profil Saya."); }
           else { state.pins[state.role] = (ui.profilPinBaru || "").trim(); logAudit("PIN peran " + ROLE_LABEL[state.role] + " diganti sendiri lewat Profil Saya."); }
           ui.profilPinLama = ""; ui.profilPinBaru = ""; ui.profilPinConf = ""; ui.profilPinError = ""; ui.profilPinDone = true; ui.profilPinOpen = false;
           render();
@@ -5087,7 +5145,7 @@
             var wpin = String(wd.pin || "").trim(), wconf = String(wd.conf || "").trim();
             if (!/^[0-9]{4,6}$/.test(wpin)) { pinErr = "Isi PIN 4–6 angka untuk " + wp2.nama + " (akun Petugas baru)."; return; }
             if (wpin !== wconf) { pinErr = "Konfirmasi PIN tidak sama untuk " + wp2.nama + "."; return; }
-            if (pinSudahDipakai(wpin, null) || akunBaru.some(function (b) { return b.pin === wpin; })) { pinErr = "PIN untuk " + wp2.nama + " sudah dipakai akun lain — pakai PIN yang berbeda."; return; }
+            if (pinNamaSudahDipakai(wpin, wp2.nama, null) || akunBaru.some(function (b) { return b.pin === wpin && b.profil.nama.trim().toLowerCase() === wp2.nama.trim().toLowerCase(); })) { pinErr = "PIN untuk " + wp2.nama + " sudah dipakai akun lain dengan nama yang sama — pakai PIN yang berbeda."; return; }
             akunBaru.push({ profil: wp2, pin: wpin });
           });
           if (pinErr) { ui.jdError = pinErr; render(); return; }
