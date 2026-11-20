@@ -859,6 +859,14 @@
       /* Kartu kelompok tugas dalam grid responsif. */
       .kelompok-grid { display: grid; gap: 0.75rem; }
       @media (min-width: 720px) { .kelompok-grid { grid-template-columns: 1fr 1fr; } }
+      /* "14 hari ke depan" sebagai lipatan sekunder — info tetap ada, tidak bersaing dengan tabel mingguan. */
+      .details-jadwal { border: 1px solid var(--border); border-radius: .875rem; background: var(--surface2); }
+      .details-jadwal > summary { cursor: pointer; padding: .75rem 1rem; font-weight: 800; list-style: none; display: flex; justify-content: space-between; align-items: center; gap: .5rem; }
+      .details-jadwal > summary::-webkit-details-marker { display: none; }
+      .details-jadwal > summary::after { content: "▾"; color: #b8862f; font-size: 1rem; line-height: 1; }
+      .details-jadwal[open] > summary::after { content: "▴"; }
+      .details-jadwal > summary .sub { font-weight: 400; margin: 0; }
+      .details-jadwal .tbl-wrap { border: 0; border-top: 1px solid var(--border); border-radius: 0 0 .875rem .875rem; }
       @media (max-width: 640px) {
         .data-table { min-width: 52rem; }
         .data-table-profil { min-width: 68rem; }
@@ -2647,7 +2655,7 @@
         var jHariIni = jadwalAktif(hariIni);
         var html = '<div class="stack-lg">';
         html += '<section><h2 class="sec">Jadwal Keliling</h2>' +
-          '<p class="sub">Admin menetapkan kelompok yang bertugas untuk tiap hari dalam seminggu (Senin–Minggu). Jadwal berulang setiap minggu — tanggal dan jam mengikuti sistem otomatis, jadi tidak perlu menetapkan tanggal satu per satu. Hanya anggota kelompok yang bertugas hari itu yang bisa mencatat setoran jimpitan — aturan ini berlaku untuk semua peran, termasuk Super Admin. Bila belum ada jadwal, tidak ada yang bisa mencatat sampai admin menetapkan jadwal hari itu.</p></section>';
+          '<p class="sub">Tetapkan satu kelompok untuk tiap hari (Senin–Minggu). Jadwal berulang tiap minggu; tanggal dan jam otomatis dari sistem. Hanya anggota kelompok yang bertugas hari itu yang bisa mencatat jimpitan.</p></section>';
         if (ui.jdError) html += '<p class="err">' + esc(ui.jdError) + '</p>';
         if (ui.jdDone) html += '<p class="ok-note">' + esc(ui.jdDone) + '</p>';
         /* Kartu sorot Hari ini — hari + tanggal otomatis dari jam sistem */
@@ -2663,8 +2671,8 @@
         }
         html += '</section>';
         /* Pola mingguan: satu kelompok per hari (Senin–Minggu), berulang — tabel premium */
-        html += '<section><h2 class="sec">Jadwal mingguan (berulang)</h2><div class="tbl-wrap"><table class="data-table data-table-jadwal"><thead><tr>' +
-          '<th class="no">No.</th><th>Hari</th><th>Kelompok</th><th>Anggota</th><th>Ditetapkan oleh</th><th>Status</th><th>Aksi</th>' +
+        html += '<section><h2 class="sec">Jadwal mingguan</h2><p class="sub">Satu kelompok untuk tiap hari — ini jadwal utama yang dipakai pencatatan jimpitan.</p><div class="tbl-wrap"><table class="data-table data-table-jadwal"><thead><tr>' +
+          '<th class="no">No.</th><th>Hari</th><th>Kelompok</th><th>Anggota</th><th>Status</th><th>Aksi</th>' +
           '</tr></thead><tbody>';
         URUTAN_HARI.forEach(function (h, ix) {
           var sAktif = null, sBatal = null;
@@ -2677,7 +2685,6 @@
             (isHariIni ? ' <span class="badge badge-green">hari ini</span>' : "") + '</td>' +
             '<td>' + (g ? '<strong>Kelompok ' + esc(g.nama) + '</strong>' : '<span style="color:var(--dim)">Belum ditetapkan</span>') + '</td>' +
             '<td>' + (g ? esc(namaAnggota(g).map(function (a) { return a.nama; }).join(", ")) : "—") + '</td>' +
-            '<td>' + (sAktif && sAktif.dibuatOleh ? esc(sAktif.dibuatOleh) : "—") + '</td>' +
             '<td>' + statusBadge(sAktif ? "Aktif" : "Belum ada") +
             (!sAktif && sBatal ? '<br><span style="font-size:.75rem;color:var(--dim)">jadwal dibatalkan</span>' : "") + '</td>' +
             '<td><div class="tbl-actions">' +
@@ -2687,8 +2694,8 @@
               : "") + '</div></td></tr>';
         });
         html += '</tbody></table></div></section>';
-        /* 14 hari ke depan — diturunkan otomatis dari pola mingguan, tabel ringkas */
-        html += '<section><h2 class="sec">14 hari ke depan (otomatis)</h2><div class="tbl-wrap"><table class="data-table data-table-narrow"><thead><tr>' +
+        /* 14 hari ke depan — lipatan sekunder (tertutup): info tetap ada, tidak bersaing dengan tabel mingguan */
+        html += '<details class="details-jadwal"><summary>14 hari ke depan <span class="sub">Otomatis dari jadwal mingguan — ketuk untuk melihat</span></summary><div class="tbl-wrap"><table class="data-table data-table-narrow"><thead><tr>' +
           '<th class="no">No.</th><th>Tanggal</th><th>Hari</th><th>Kelompok</th><th>Anggota</th>' +
           '</tr></thead><tbody>';
         for (var i = 0; i < 14; i++) {
@@ -2699,7 +2706,7 @@
             '<td>' + (jj ? '<strong>Kelompok ' + esc(jj.group.nama) + '</strong>' : '<span style="color:var(--dim)">Belum ada kelompok</span>') + '</td>' +
             '<td>' + (jj ? esc(namaAnggota(jj.group).map(function (a) { return a.nama; }).join(", ")) : "—") + '</td></tr>';
         }
-        html += '</tbody></table></div></section>';
+        html += '</tbody></table></div></details>';
         /* Daftar kelompok — kartu dalam grid */
         html += '<section><h2 class="sec">Kelompok Tugas (' + state.groups.length + ')</h2>';
         if (state.groups.length === 0) {
@@ -2709,9 +2716,10 @@
           state.groups.slice().sort(function (a, b) { return a.nama.localeCompare(b.nama, "id"); }).forEach(function (g) {
             var aktif = g.aktif !== false;
             var ang = namaAnggota(g);
+            var ringkas = ang.length === 0 ? "Belum ada anggota" : ang.length + " anggota · " + ang.slice(0, 2).map(function (a) { return a.nama + " (" + a.peran + ")"; }).join(", ") + (ang.length > 2 ? " +" + (ang.length - 2) + " lagi" : "");
             html += '<div class="card" style="padding:.75rem 1rem"><div style="display:flex;justify-content:space-between;gap:.75rem;align-items:flex-start;flex-wrap:wrap"><div>' +
               '<p class="t" style="font-size:.9375rem;font-weight:700;margin:0">Kelompok ' + esc(g.nama) + '</p>' +
-              '<p class="s">' + (ang.length ? esc(ang.map(function (a) { return a.nama + " (" + a.peran + ")"; }).join(", ")) : "Belum ada anggota") + '</p></div>' +
+              '<p class="s">' + esc(ringkas) + '</p></div>' +
               '<div style="display:flex;gap:.375rem;flex-wrap:wrap;justify-content:flex-end;align-items:center">' +
               statusBadge(aktif ? "Aktif" : "Nonaktif") +
               (kelola
@@ -2723,6 +2731,8 @@
         }
         html += (kelola ? '<p class="hint">Menonaktifkan kelompok membuat jadwalnya tidak berlaku sampai diaktifkan lagi — anggotanya tidak bisa mencatat selama itu.</p>' : "") + '</section>';
         if (kelola) {
+          html += '<section><h2 class="sec">Kelola kelompok & jadwal</h2>' +
+            '<p class="sub">Dua langkah saja: bentuk kelompoknya dulu, lalu tentukan kelompok mana yang bertugas di hari apa.</p>';
           /* Form kelompok — anggota dipilih dari Daftar Warga (Profil Warga). */
           var wrAktif = wargaAktif();
           var cariW = (ui.jdWargaCari || "").trim().toLowerCase();
@@ -2733,6 +2743,7 @@
           });
           var lainAktif = penggunaLainAktif();
           html += '<form class="card" data-form="jd-group"><p class="card-title">' + (ui.jdGroupEdit != null ? "Ubah kelompok" : "Tambah kelompok tugas") + '</p>' +
+            '<p class="sub" style="margin:-.25rem 0 .75rem">Ubah siapa saja anggota kelompok — pilih dari Daftar Warga.</p>' +
             fld("jd-nama", "Nama kelompok", "jdNama", ui.jdNama, "mis. A atau Tim Pagi") +
             '<div style="margin-top:.75rem"><p class="lbl">Anggota — pilih dari Daftar Warga</p>';
           if (wrAktif.length === 0) {
@@ -2774,14 +2785,15 @@
             '<p class="hint">Nama kelompok wajib dan tidak boleh sama dengan kelompok lain. Anggota harus punya akun login (Nama + PIN) — warga yang belum punya akun dibuatkan akun Petugas saat kelompok disimpan. Akun peran bawaan (tanpa nama) tidak bisa dijadwalkan.</p></form>';
           /* Form jadwal — HARI saja, tanpa tanggal/jam */
           var grupAktif = state.groups.filter(function (g) { return g.aktif !== false; });
-          html += '<form class="card" data-form="jd-sched"><p class="card-title">' + (ui.jdSchedEdit != null ? "Ubah jadwal" : "Tetapkan jadwal keliling") + '</p><div class="grid2">' +
+          html += '<form class="card" data-form="jd-sched"><p class="card-title">' + (ui.jdSchedEdit != null ? "Ubah jadwal" : "Tetapkan jadwal keliling") + '</p>' +
+            '<p class="sub" style="margin:-.25rem 0 .75rem">Tentukan kelompok mana yang bertugas di hari apa.</p><div class="grid2">' +
             '<div><label class="lbl" for="jd-hari">Hari</label><select id="jd-hari" class="inp" data-bind-sel="jdHari">' +
             URUTAN_HARI.map(function (h) { return '<option value="' + h + '"' + (Number(ui.jdHari) === h ? " selected" : "") + '>' + namaHari(h) + '</option>'; }).join("") + '</select></div>' +
             '<div><label class="lbl" for="jd-grup">Kelompok yang bertugas</label><select id="jd-grup" class="inp" data-bind-sel="jdGroup"><option value="">— Pilih kelompok —</option>' +
             grupAktif.map(function (g) { return '<option value="' + g.id + '"' + (String(ui.jdGroup) === String(g.id) ? " selected" : "") + '>Kelompok ' + esc(g.nama) + '</option>'; }).join("") + '</select></div></div>' +
             '<div class="actions-row" style="margin-top:.75rem"><button type="submit" class="btn btn-primary">' + (ui.jdSchedEdit != null ? "Simpan perubahan" : "Simpan jadwal") + '</button>' +
             (ui.jdSchedEdit != null ? '<button type="button" class="btn btn-ghost" data-act="jd-sched-cancel">Batal</button>' : "") + '</div>' +
-            '<p class="hint">Jadwal berulang setiap minggu — tanggal dan jam mengikuti sistem otomatis. Bila hari itu sudah punya jadwal aktif, jadwal lama diubah ke kelompok ini — tidak dibuat duplikat. Jadwal bisa dibatalkan dari daftar mingguan di atas.</p></form>';
+            '<p class="hint">Jadwal berulang setiap minggu — tanggal dan jam mengikuti sistem otomatis. Bila hari itu sudah punya jadwal aktif, jadwal lama diubah ke kelompok ini — tidak dibuat duplikat. Jadwal bisa dibatalkan dari daftar mingguan di atas.</p></form></section>';
         } else {
           html += '<p class="sub">Anda melihat jadwal ini baca-saja. Hanya Super Admin dan Admin yang bisa mengelola kelompok dan jadwal.</p>';
         }
