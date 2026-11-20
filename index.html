@@ -1020,6 +1020,7 @@
         houseHapusFor: null,
         pfHapusFor: null,   /* profil warga yang panel hapusnya terbuka */
         jdNama: "", jdAnggota: [], jdGroupEdit: null,   /* form kelompok tugas */
+        jdWargaBaru: [], jdPinWarga: {}, jdWargaCari: "", /* pemilih anggota dari Daftar Warga: warga tanpa akun + PIN-nya */
         jdHari: new Date().getDay(), jdGroup: "", jdSchedEdit: null, jdError: "", jdDone: ""  /* form jadwal memakai hari (0-6), bukan tanggal */
       };
 
@@ -1621,6 +1622,27 @@
           });
         });
         return out;
+      }
+      /* Pencocokan nama warga (Profil Warga) dengan pengguna bernama (state.users):
+         trim + case-insensitive; hanya pengguna AKTIF yang dipakai sebagai anggota. */
+      function namaNormal(s) { return String(s == null ? "" : s).trim().toLowerCase(); }
+      function cariPenggunaAktifByNama(nama) {
+        var n = namaNormal(nama), out = null;
+        (state.users || []).forEach(function (u) { if (u.aktif !== false && namaNormal(u.nama) === n) out = u; });
+        return out;
+      }
+      /* Daftar Warga yang berstatus Aktif, urut nama — sumber utama pemilih anggota. */
+      function wargaAktif() {
+        return (state.profil || []).filter(function (p) { return (p.statusTinggal || "aktif") === "aktif"; })
+          .slice().sort(function (a, b) { return String(a.nama || "").localeCompare(String(b.nama || ""), "id"); });
+      }
+      /* Pengguna bernama aktif yang namanya TIDAK cocok dengan warga Aktif mana pun —
+         tetap bisa dipilih supaya akun yang dibuat di Users tidak hilang dari pemilih. */
+      function penggunaLainAktif() {
+        var wr = wargaAktif();
+        return anggotaAktif().filter(function (u) {
+          return !wr.some(function (p) { return namaNormal(p.nama) === namaNormal(u.nama); });
+        });
       }
       function normalisasiJadwal() {
         if (!Array.isArray(state.groups)) state.groups = [];
@@ -2643,20 +2665,55 @@
         });
         html += '</div>' + (kelola ? '<p class="hint">Menonaktifkan kelompok membuat jadwalnya tidak berlaku sampai diaktifkan lagi — anggotanya tidak bisa mencatat selama itu.</p>' : "") + '</section>';
         if (kelola) {
-          /* Form kelompok */
-          var calon = anggotaAktif();
+          /* Form kelompok — anggota dipilih dari Daftar Warga (Profil Warga). */
+          var wrAktif = wargaAktif();
+          var cariW = (ui.jdWargaCari || "").trim().toLowerCase();
+          var wrTampil = wrAktif.filter(function (p) {
+            if (!cariW) return true;
+            var hw = p.houseId ? houseById(p.houseId) : null;
+            return namaNormal(p.nama).indexOf(cariW) >= 0 || (hw && String(hw.nomor || "").toLowerCase().indexOf(cariW) >= 0);
+          });
+          var lainAktif = penggunaLainAktif();
           html += '<form class="card" data-form="jd-group"><p style="margin:0 0 .75rem;font-weight:700">' + (ui.jdGroupEdit != null ? "Ubah kelompok" : "Tambah kelompok tugas") + '</p>' +
             fld("jd-nama", "Nama kelompok", "jdNama", ui.jdNama, "mis. A atau Tim Pagi") +
-            '<div style="margin-top:.75rem"><p class="lbl">Anggota (pengguna bernama yang aktif)</p>';
-          if (calon.length === 0) html += '<p class="hint">Belum ada pengguna bernama yang aktif — tambah dulu di menu Users (Super Admin).</p>';
+            '<div style="margin-top:.75rem"><p class="lbl">Anggota — pilih dari Daftar Warga</p>';
+          if (wrAktif.length === 0) {
+            html += '<p class="hint">Isi Daftar Warga dulu (tab Profil Warga), atau pilih dari Pengguna lain di bawah.</p>';
+          } else {
+            if (wrAktif.length > 5) html += '<input id="jd-warga-cari" type="search" class="inp" style="margin-bottom:.5rem" placeholder="Cari nama warga…" value="' + esc(ui.jdWargaCari || "") + '" data-bind="jdWargaCari">';
+            html += '<div style="display:flex;gap:.375rem;flex-wrap:wrap">' +
+              wrTampil.map(function (p) {
+                var hw = p.houseId ? houseById(p.houseId) : null;
+                var mu = cariPenggunaAktifByNama(p.nama);
+                var dipilih = mu ? (ui.jdAnggota || []).some(function (x) { return String(x) === String(mu.id); })
+                  : (ui.jdWargaBaru || []).some(function (x) { return String(x) === String(p.id); });
+                var ket = (hw ? "Rumah " + hw.nomor : "Tanpa rumah") + " · " + (mu ? "akun " + (ROLE_LABEL[mu.peran] || mu.peran) : "belum punya akun — perlu PIN");
+                return '<button type="button" class="btn ' + (dipilih ? "btn-primary" : "btn-ghost") + '" data-act="jd-anggota-warga" data-id="' + p.id + '">' + esc(p.nama) + ' · ' + esc(ket) + (dipilih ? " ✓" : "") + '</button>';
+              }).join("") + '</div>';
+            if (wrTampil.length === 0) html += '<p class="hint">Tidak ada warga yang cocok dengan pencarian.</p>';
+          }
+          html += '</div>' +
+            '<div style="margin-top:.75rem"><p class="lbl">Pengguna lain (akun bernama tanpa profil warga)</p>';
+          if (lainAktif.length === 0) html += '<p class="hint">Tidak ada — semua pengguna bernama sudah ada di Daftar Warga.</p>';
           html += '<div style="display:flex;gap:.375rem;flex-wrap:wrap">' +
-            calon.map(function (u) {
+            lainAktif.map(function (u) {
               var dipilih = (ui.jdAnggota || []).some(function (x) { return String(x) === String(u.id); });
               return '<button type="button" class="btn ' + (dipilih ? "btn-primary" : "btn-ghost") + '" data-act="jd-anggota" data-id="' + u.id + '">' + esc(u.nama) + ' · ' + esc(ROLE_LABEL[u.peran] || u.peran) + (dipilih ? " ✓" : "") + '</button>';
-            }).join("") + '</div></div>' +
-            '<div class="actions-row" style="margin-top:.75rem"><button type="submit" class="btn btn-primary">' + (ui.jdGroupEdit != null ? "Simpan perubahan" : "Simpan kelompok") + '</button>' +
+            }).join("") + '</div></div>';
+          /* Isian PIN untuk warga terpilih yang belum punya akun — akun Petugas
+             baru dibuat saat kelompok disimpan (PIN 4–6 angka, tidak boleh duplikat). */
+          (ui.jdWargaBaru || []).forEach(function (pid) {
+            var pw = profilById(Number(pid));
+            if (!pw || cariPenggunaAktifByNama(pw.nama)) return;
+            var dp = ui.jdPinWarga[pid] || {};
+            html += '<div style="margin-top:.75rem;padding:.75rem;border:1px dashed var(--line);border-radius:.75rem"><p style="margin:0 0 .5rem;font-weight:700">PIN untuk ' + esc(pw.nama) + ' (akun Petugas baru)</p><div class="grid2">' +
+              fld("jd-pin-" + pw.id, "PIN (4–6 angka)", "jdPinWarga:" + pw.id + ":pin", dp.pin || "", "", "password") +
+              fld("jd-pinconf-" + pw.id, "Konfirmasi PIN", "jdPinWarga:" + pw.id + ":conf", dp.conf || "", "", "password") +
+              '</div><p class="hint" style="margin:.5rem 0 0">PIN tidak boleh sama dengan PIN akun lain. Akun dibuat saat kelompok disimpan.</p></div>';
+          });
+          html += '<div class="actions-row" style="margin-top:.75rem"><button type="submit" class="btn btn-primary">' + (ui.jdGroupEdit != null ? "Simpan perubahan" : "Simpan kelompok") + '</button>' +
             (ui.jdGroupEdit != null ? '<button type="button" class="btn btn-ghost" data-act="jd-group-cancel">Batal</button>' : "") + '</div>' +
-            '<p class="hint">Nama kelompok wajib dan tidak boleh sama dengan kelompok lain. Hanya pengguna bernama yang bisa dipilih — akun peran bawaan (tanpa nama) tidak bisa dijadwalkan.</p></form>';
+            '<p class="hint">Nama kelompok wajib dan tidak boleh sama dengan kelompok lain. Anggota harus punya akun login (Nama + PIN) — warga yang belum punya akun dibuatkan akun Petugas saat kelompok disimpan. Akun peran bawaan (tanpa nama) tidak bisa dijadwalkan.</p></form>';
           /* Form jadwal — HARI saja, tanpa tanggal/jam */
           var grupAktif = state.groups.filter(function (g) { return g.aktif !== false; });
           html += '<form class="card" data-form="jd-sched"><p style="margin:0 0 .75rem;font-weight:700">' + (ui.jdSchedEdit != null ? "Ubah jadwal" : "Tetapkan jadwal keliling") + '</p><div class="grid2">' +
@@ -4618,15 +4675,31 @@
           if (ix >= 0) ui.jdAnggota.splice(ix, 1); else ui.jdAnggota.push(aid);
           render();
         }
+        else if (act === "jd-anggota-warga") {
+          if (!canKelolaJadwal()) return;
+          var wp = profilById(Number(t.getAttribute("data-id")));
+          if (!wp) return;
+          var wmu = cariPenggunaAktifByNama(wp.nama);
+          if (wmu) {
+            var wix = ui.jdAnggota.indexOf(String(wmu.id));
+            if (wix >= 0) ui.jdAnggota.splice(wix, 1); else ui.jdAnggota.push(String(wmu.id));
+          } else {
+            var jix = ui.jdWargaBaru.indexOf(String(wp.id));
+            if (jix >= 0) { ui.jdWargaBaru.splice(jix, 1); delete ui.jdPinWarga[String(wp.id)]; }
+            else ui.jdWargaBaru.push(String(wp.id));
+          }
+          render();
+        }
         else if (act === "jd-group-edit") {
           if (!canKelolaJadwal()) return;
           var ge = groupById(Number(t.getAttribute("data-id")));
           if (!ge) return;
           ui.jdGroupEdit = ge.id; ui.jdNama = ge.nama;
           ui.jdAnggota = (ge.anggota || []).map(function (x) { return String(x); });
+          ui.jdWargaBaru = []; ui.jdPinWarga = {}; ui.jdWargaCari = "";
           ui.jdError = ""; ui.jdDone = ""; render();
         }
-        else if (act === "jd-group-cancel") { ui.jdGroupEdit = null; ui.jdNama = ""; ui.jdAnggota = []; ui.jdError = ""; render(); }
+        else if (act === "jd-group-cancel") { ui.jdGroupEdit = null; ui.jdNama = ""; ui.jdAnggota = []; ui.jdWargaBaru = []; ui.jdPinWarga = {}; ui.jdError = ""; render(); }
         else if (act === "jd-group-toggle") {
           if (!canKelolaJadwal()) return;
           var gt = groupById(Number(t.getAttribute("data-id")));
@@ -4687,6 +4760,13 @@
         if (bind === "pfCari") { ui.pfCari = el.value; ui.focusId = "pf-cari"; render(); return; }
         if (bind === "loginNama") {
           ui.loginNama = el.value;
+          return;
+        }
+        if (bind === "jdWargaCari") { ui.jdWargaCari = el.value; ui.focusId = "jd-warga-cari"; render(); return; }
+        if (bind.indexOf("jdPinWarga:") === 0) {
+          var pp = bind.split(":");
+          if (!ui.jdPinWarga[pp[1]]) ui.jdPinWarga[pp[1]] = { pin: "", conf: "" };
+          ui.jdPinWarga[pp[1]][pp[2] === "conf" ? "conf" : "pin"] = el.value;
           return;
         }
         if (bind in ui) ui[bind] = el.value;
@@ -4993,7 +5073,31 @@
           (ui.jdAnggota || []).forEach(function (aid) {
             state.users.forEach(function (u) { if (String(u.id) === String(aid) && u.aktif !== false) anggotaG.push(u.id); });
           });
-          if (anggotaG.length === 0) { ui.jdError = "Pilih minimal satu anggota dari pengguna bernama yang aktif."; render(); return; }
+          /* Warga terpilih yang belum punya akun: validasi SEMUA PIN dulu, baru
+             buat akun — supaya gagal di satu warga tidak menyisakan akun setengah jadi. */
+          var akunBaru = [];
+          var pinErr = "";
+          (ui.jdWargaBaru || []).forEach(function (pid) {
+            if (pinErr) return;
+            var wp2 = profilById(Number(pid));
+            if (!wp2 || (wp2.statusTinggal || "aktif") !== "aktif") return;
+            var wmu2 = cariPenggunaAktifByNama(wp2.nama);
+            if (wmu2) { if (anggotaG.indexOf(wmu2.id) < 0) anggotaG.push(wmu2.id); return; }
+            var wd = ui.jdPinWarga[pid] || {};
+            var wpin = String(wd.pin || "").trim(), wconf = String(wd.conf || "").trim();
+            if (!/^[0-9]{4,6}$/.test(wpin)) { pinErr = "Isi PIN 4–6 angka untuk " + wp2.nama + " (akun Petugas baru)."; return; }
+            if (wpin !== wconf) { pinErr = "Konfirmasi PIN tidak sama untuk " + wp2.nama + "."; return; }
+            if (pinSudahDipakai(wpin, null) || akunBaru.some(function (b) { return b.pin === wpin; })) { pinErr = "PIN untuk " + wp2.nama + " sudah dipakai akun lain — pakai PIN yang berbeda."; return; }
+            akunBaru.push({ profil: wp2, pin: wpin });
+          });
+          if (pinErr) { ui.jdError = pinErr; render(); return; }
+          if (anggotaG.length === 0 && akunBaru.length === 0) { ui.jdError = "Pilih minimal satu anggota dari Daftar Warga atau Pengguna lain."; render(); return; }
+          akunBaru.forEach(function (b) {
+            var nu = { id: nextId(), nama: b.profil.nama.trim(), peran: "petugas", pin: b.pin, hp: b.profil.noHp || "", aktif: true, dibuat: todayStr() };
+            state.users.push(nu);
+            anggotaG.push(nu.id);
+            logAudit("Pengguna ditambah: " + nu.nama + " (Petugas) — dibuat dari Daftar Warga saat membentuk Kelompok " + namaG + ".");
+          });
           if (ui.jdGroupEdit != null) {
             state.groups.forEach(function (g) { if (g.id === ui.jdGroupEdit) { g.nama = namaG; g.anggota = anggotaG; } });
             logAudit("Kelompok tugas diubah: " + namaG + " (" + anggotaG.length + " anggota).");
@@ -5003,7 +5107,7 @@
             logAudit("Kelompok tugas ditambah: " + namaG + " (" + anggotaG.length + " anggota).");
             ui.jdDone = "Kelompok " + namaG + " ditambahkan.";
           }
-          ui.jdGroupEdit = null; ui.jdNama = ""; ui.jdAnggota = []; ui.jdError = "";
+          ui.jdGroupEdit = null; ui.jdNama = ""; ui.jdAnggota = []; ui.jdWargaBaru = []; ui.jdPinWarga = {}; ui.jdError = "";
           render();
         }
         else if (kind === "jd-sched") {
