@@ -1054,9 +1054,9 @@
         houseArsipFor: null, houseArsipReason: "",
         houseHapusFor: null,
         pfHapusFor: null,   /* profil warga yang panel hapusnya terbuka */
-        jdNama: "", jdAnggota: [], jdGroupEdit: null,   /* form kelompok tugas */
+        jdNama: "", jdAnggota: [], jdGroupEdit: null,   /* popup kelola petugas: nama + anggota kelompok */
         jdWargaBaru: [], jdPinWarga: {}, jdWargaCari: "", /* pemilih anggota dari Daftar Warga: warga tanpa akun + PIN-nya */
-        jdHari: new Date().getDay(), jdGroup: "", jdSchedEdit: null, jdError: "", jdDone: ""  /* form jadwal memakai hari (0-6), bukan tanggal */
+        jdGroup: "", jdPopup: false, jdPopupHari: null, jdError: "", jdDone: ""  /* popup kelola petugas dari tabel mingguan / kartu kelompok */
       };
 
       /* ===== Penyimpanan perangkat: data, PIN, dan sesi masuk disimpan di browser
@@ -2116,6 +2116,7 @@
         html += "</div></div></div></main>";
         if (ui.loginOpen) html += viewLogin();
         if (ui.pfModal) html += viewProfilModal();
+        if (ui.jdPopup) html += viewJadwalModal();
         if (ui.cloudConfirm) html += viewCloudConfirm();
         /* Bilah bawah HP hanya 3 tombol (Beranda, Jimpitan/Kas, Menu) —
            menu lengkap ada di lembar berkelompok (viewMenuSheet), supaya
@@ -2644,6 +2645,12 @@
       /* ================= Jadwal Keliling =================
          Kelompok tugas + jadwal harian. Kelola (tambah/ubah/batalkan)
          hanya Super Admin & Admin; Petugas/Bendahara melihat baca-saja. */
+      /* Menutup popup kelola petugas dan membersihkan isian sementaranya. */
+      function tutupJdPopup() {
+        ui.jdPopup = false; ui.jdPopupHari = null; ui.jdGroupEdit = null; ui.jdNama = ""; ui.jdGroup = "";
+        ui.jdAnggota = []; ui.jdWargaBaru = []; ui.jdPinWarga = {}; ui.jdWargaCari = ""; ui.jdError = "";
+      }
+
       function viewJadwal() {
         if (state.role === "warga") {
           return '<div class="lock-note"><h2 class="sec">Halaman khusus pengurus</h2>' +
@@ -2667,7 +2674,7 @@
             '<p class="anggota">Anggota: ' + esc(namaAnggota(jHariIni.group).map(function (a) { return a.nama + " (" + a.peran + ")"; }).join(", ")) + '</p>';
         } else {
           html += '<p class="tugas">Belum ada jadwal</p>' +
-            '<p class="anggota">Belum ada kelompok yang bertugas hari ini (' + esc(namaHari(hariKe(hariIni))) + ') — pencatatan jimpitan terkunci sampai ' + (kelola ? "admin menetapkan jadwal di bawah." : "admin menetapkan jadwal.") + '</p>';
+            '<p class="anggota">Belum ada kelompok yang bertugas hari ini (' + esc(namaHari(hariKe(hariIni))) + ') — pencatatan jimpitan terkunci sampai ' + (kelola ? "admin menetapkan jadwal lewat tabel mingguan di bawah." : "admin menetapkan jadwal.") + '</p>';
         }
         html += '</section>';
         /* Pola mingguan: satu kelompok per hari (Senin–Minggu), berulang — tabel premium */
@@ -2688,9 +2695,9 @@
             '<td>' + statusBadge(sAktif ? "Aktif" : "Belum ada") +
             (!sAktif && sBatal ? '<br><span style="font-size:.75rem;color:var(--dim)">jadwal dibatalkan</span>' : "") + '</td>' +
             '<td><div class="tbl-actions">' +
-            (kelola && sAktif
-              ? '<button type="button" class="btn btn-ghost" data-act="jd-sched-edit" data-id="' + sAktif.id + '">Ubah</button>' +
-                '<button type="button" class="btn btn-danger-ghost" data-act="jd-sched-batal" data-id="' + sAktif.id + '">Batalkan</button>'
+            (kelola
+              ? '<button type="button" class="btn btn-ghost" data-act="jd-hari-pick" data-hari="' + h + '">' + (sAktif ? "Ubah" : "Tetapkan") + '</button>' +
+                (sAktif ? '<button type="button" class="btn btn-danger-ghost" data-act="jd-sched-batal" data-id="' + sAktif.id + '">Batalkan</button>' : "")
               : "") + '</div></td></tr>';
         });
         html += '</tbody></table></div></section>';
@@ -2710,7 +2717,7 @@
         /* Daftar kelompok — kartu dalam grid */
         html += '<section><h2 class="sec">Kelompok Tugas (' + state.groups.length + ')</h2>';
         if (state.groups.length === 0) {
-          html += '<p class="empty">Belum ada kelompok tugas — buat kelompok dulu di bawah.</p>';
+          html += '<p class="empty">Belum ada kelompok tugas — buat lewat tombol Tetapkan di tabel mingguan.</p>';
         } else {
           html += '<div class="kelompok-grid">';
           state.groups.slice().sort(function (a, b) { return a.nama.localeCompare(b.nama, "id"); }).forEach(function (g) {
@@ -2730,74 +2737,97 @@
           html += '</div>';
         }
         html += (kelola ? '<p class="hint">Menonaktifkan kelompok membuat jadwalnya tidak berlaku sampai diaktifkan lagi — anggotanya tidak bisa mencatat selama itu.</p>' : "") + '</section>';
-        if (kelola) {
-          html += '<section><h2 class="sec">Kelola kelompok & jadwal</h2>' +
-            '<p class="sub">Dua langkah saja: bentuk kelompoknya dulu, lalu tentukan kelompok mana yang bertugas di hari apa.</p>';
-          /* Form kelompok — anggota dipilih dari Daftar Warga (Profil Warga). */
-          var wrAktif = wargaAktif();
-          var cariW = (ui.jdWargaCari || "").trim().toLowerCase();
-          var wrTampil = wrAktif.filter(function (p) {
-            if (!cariW) return true;
-            var hw = p.houseId ? houseById(p.houseId) : null;
-            return namaNormal(p.nama).indexOf(cariW) >= 0 || (hw && String(hw.nomor || "").toLowerCase().indexOf(cariW) >= 0);
-          });
-          var lainAktif = penggunaLainAktif();
-          html += '<form class="card" data-form="jd-group"><p class="card-title">' + (ui.jdGroupEdit != null ? "Ubah kelompok" : "Tambah kelompok tugas") + '</p>' +
-            '<p class="sub" style="margin:-.25rem 0 .75rem">Ubah siapa saja anggota kelompok — pilih dari Daftar Warga.</p>' +
-            fld("jd-nama", "Nama kelompok", "jdNama", ui.jdNama, "mis. A atau Tim Pagi") +
-            '<div style="margin-top:.75rem"><p class="lbl">Anggota — pilih dari Daftar Warga</p>';
-          if (wrAktif.length === 0) {
-            html += '<p class="hint">Isi Daftar Warga dulu (tab Profil Warga), atau pilih dari Pengguna lain di bawah.</p>';
-          } else {
-            if (wrAktif.length > 5) html += '<input id="jd-warga-cari" type="search" class="inp" style="margin-bottom:.5rem" placeholder="Cari nama warga…" value="' + esc(ui.jdWargaCari || "") + '" data-bind="jdWargaCari">';
-            html += '<div style="display:flex;gap:.375rem;flex-wrap:wrap">' +
-              wrTampil.map(function (p) {
-                var hw = p.houseId ? houseById(p.houseId) : null;
-                var mu = cariPenggunaAktifByNama(p.nama);
-                var dipilih = mu ? (ui.jdAnggota || []).some(function (x) { return String(x) === String(mu.id); })
-                  : (ui.jdWargaBaru || []).some(function (x) { return String(x) === String(p.id); });
-                var ket = (hw ? "Rumah " + hw.nomor : "Tanpa rumah") + " · " + (mu ? "akun " + (ROLE_LABEL[mu.peran] || mu.peran) : "belum punya akun — perlu PIN");
-                return '<button type="button" class="btn ' + (dipilih ? "btn-primary" : "btn-ghost") + '" data-act="jd-anggota-warga" data-id="' + p.id + '">' + esc(p.nama) + ' · ' + esc(ket) + (dipilih ? " ✓" : "") + '</button>';
-              }).join("") + '</div>';
-            if (wrTampil.length === 0) html += '<p class="hint">Tidak ada warga yang cocok dengan pencarian.</p>';
-          }
-          html += '</div>' +
-            '<div style="margin-top:.75rem"><p class="lbl">Pengguna lain (akun bernama tanpa profil warga)</p>';
-          if (lainAktif.length === 0) html += '<p class="hint">Tidak ada — semua pengguna bernama sudah ada di Daftar Warga.</p>';
-          html += '<div style="display:flex;gap:.375rem;flex-wrap:wrap">' +
-            lainAktif.map(function (u) {
-              var dipilih = (ui.jdAnggota || []).some(function (x) { return String(x) === String(u.id); });
-              return '<button type="button" class="btn ' + (dipilih ? "btn-primary" : "btn-ghost") + '" data-act="jd-anggota" data-id="' + u.id + '">' + esc(u.nama) + ' · ' + esc(ROLE_LABEL[u.peran] || u.peran) + (dipilih ? " ✓" : "") + '</button>';
-            }).join("") + '</div></div>';
-          /* Isian PIN untuk warga terpilih yang belum punya akun — akun Petugas
-             baru dibuat saat kelompok disimpan (PIN 4–6 angka; PIN sama boleh, kecuali nama sama + PIN sama). */
-          (ui.jdWargaBaru || []).forEach(function (pid) {
-            var pw = profilById(Number(pid));
-            if (!pw || cariPenggunaAktifByNama(pw.nama)) return;
-            var dp = ui.jdPinWarga[pid] || {};
-            html += '<div style="margin-top:.75rem;padding:.75rem;border:1px dashed var(--line);border-radius:.75rem"><p style="margin:0 0 .5rem;font-weight:700">PIN untuk ' + esc(pw.nama) + ' (akun Petugas baru)</p><div class="grid2">' +
-              fld("jd-pin-" + pw.id, "PIN (4–6 angka)", "jdPinWarga:" + pw.id + ":pin", dp.pin || "", "", "password") +
-              fld("jd-pinconf-" + pw.id, "Konfirmasi PIN", "jdPinWarga:" + pw.id + ":conf", dp.conf || "", "", "password") +
-              '</div><p class="hint" style="margin:.5rem 0 0">PIN boleh sama dengan PIN akun lain yang namanya berbeda. Yang tidak boleh: nama yang sama dengan PIN yang sama. Akun dibuat saat kelompok disimpan.</p></div>';
-          });
-          html += '<div class="actions-row" style="margin-top:.75rem"><button type="submit" class="btn btn-primary">' + (ui.jdGroupEdit != null ? "Simpan perubahan" : "Simpan kelompok") + '</button>' +
-            (ui.jdGroupEdit != null ? '<button type="button" class="btn btn-ghost" data-act="jd-group-cancel">Batal</button>' : "") + '</div>' +
-            '<p class="hint">Nama kelompok wajib dan tidak boleh sama dengan kelompok lain. Anggota harus punya akun login (Nama + PIN) — warga yang belum punya akun dibuatkan akun Petugas saat kelompok disimpan. Akun peran bawaan (tanpa nama) tidak bisa dijadwalkan.</p></form>';
-          /* Form jadwal — HARI saja, tanpa tanggal/jam */
-          var grupAktif = state.groups.filter(function (g) { return g.aktif !== false; });
-          html += '<form class="card" data-form="jd-sched"><p class="card-title">' + (ui.jdSchedEdit != null ? "Ubah jadwal" : "Tetapkan jadwal keliling") + '</p>' +
-            '<p class="sub" style="margin:-.25rem 0 .75rem">Tentukan kelompok mana yang bertugas di hari apa.</p><div class="grid2">' +
-            '<div><label class="lbl" for="jd-hari">Hari</label><select id="jd-hari" class="inp" data-bind-sel="jdHari">' +
-            URUTAN_HARI.map(function (h) { return '<option value="' + h + '"' + (Number(ui.jdHari) === h ? " selected" : "") + '>' + namaHari(h) + '</option>'; }).join("") + '</select></div>' +
-            '<div><label class="lbl" for="jd-grup">Kelompok yang bertugas</label><select id="jd-grup" class="inp" data-bind-sel="jdGroup"><option value="">— Pilih kelompok —</option>' +
-            grupAktif.map(function (g) { return '<option value="' + g.id + '"' + (String(ui.jdGroup) === String(g.id) ? " selected" : "") + '>Kelompok ' + esc(g.nama) + '</option>'; }).join("") + '</select></div></div>' +
-            '<div class="actions-row" style="margin-top:.75rem"><button type="submit" class="btn btn-primary">' + (ui.jdSchedEdit != null ? "Simpan perubahan" : "Simpan jadwal") + '</button>' +
-            (ui.jdSchedEdit != null ? '<button type="button" class="btn btn-ghost" data-act="jd-sched-cancel">Batal</button>' : "") + '</div>' +
-            '<p class="hint">Jadwal berulang setiap minggu — tanggal dan jam mengikuti sistem otomatis. Bila hari itu sudah punya jadwal aktif, jadwal lama diubah ke kelompok ini — tidak dibuat duplikat. Jadwal bisa dibatalkan dari daftar mingguan di atas.</p></form></section>';
-        } else {
+        if (!kelola) {
           html += '<p class="sub">Anda melihat jadwal ini baca-saja. Hanya Super Admin dan Admin yang bisa mengelola kelompok dan jadwal.</p>';
         }
         html += '</div>';
+        return html;
+      }
+
+      /* Pemilih anggota popup: dari Daftar Warga (Aktif) + Pengguna lain,
+         sama seperti form kelompok lama — warga tanpa akun dibuatkan akun
+         Petugas + PIN saat simpan. */
+      function jdAnggotaPickerHtml() {
+        var wrAktif = wargaAktif();
+        var cariW = (ui.jdWargaCari || "").trim().toLowerCase();
+        var wrTampil = wrAktif.filter(function (p) {
+          if (!cariW) return true;
+          var hw = p.houseId ? houseById(p.houseId) : null;
+          return namaNormal(p.nama).indexOf(cariW) >= 0 || (hw && String(hw.nomor || "").toLowerCase().indexOf(cariW) >= 0);
+        });
+        var lainAktif = penggunaLainAktif();
+        var out = '<div style="margin-top:.75rem"><p class="lbl">Anggota — pilih dari Daftar Warga</p>';
+        if (wrAktif.length === 0) {
+          out += '<p class="hint">Isi Daftar Warga dulu (tab Profil Warga), atau pilih dari Pengguna lain di bawah.</p>';
+        } else {
+          if (wrAktif.length > 5) out += '<input id="jd-warga-cari" type="search" class="inp" style="margin-bottom:.5rem" placeholder="Cari nama warga…" value="' + esc(ui.jdWargaCari || "") + '" data-bind="jdWargaCari">';
+          out += '<div style="display:flex;gap:.375rem;flex-wrap:wrap">' +
+            wrTampil.map(function (p) {
+              var hw = p.houseId ? houseById(p.houseId) : null;
+              var mu = cariPenggunaAktifByNama(p.nama);
+              var dipilih = mu ? (ui.jdAnggota || []).some(function (x) { return String(x) === String(mu.id); })
+                : (ui.jdWargaBaru || []).some(function (x) { return String(x) === String(p.id); });
+              var ket = (hw ? "Rumah " + hw.nomor : "Tanpa rumah") + " · " + (mu ? "akun " + (ROLE_LABEL[mu.peran] || mu.peran) : "belum punya akun — perlu PIN");
+              return '<button type="button" class="btn ' + (dipilih ? "btn-primary" : "btn-ghost") + '" data-act="jd-anggota-warga" data-id="' + p.id + '">' + esc(p.nama) + ' · ' + esc(ket) + (dipilih ? " ✓" : "") + '</button>';
+            }).join("") + '</div>';
+          if (wrTampil.length === 0) out += '<p class="hint">Tidak ada warga yang cocok dengan pencarian.</p>';
+        }
+        out += '</div>' +
+          '<div style="margin-top:.75rem"><p class="lbl">Pengguna lain (akun bernama tanpa profil warga)</p>';
+        if (lainAktif.length === 0) out += '<p class="hint">Tidak ada — semua pengguna bernama sudah ada di Daftar Warga.</p>';
+        out += '<div style="display:flex;gap:.375rem;flex-wrap:wrap">' +
+          lainAktif.map(function (u) {
+            var dipilih = (ui.jdAnggota || []).some(function (x) { return String(x) === String(u.id); });
+            return '<button type="button" class="btn ' + (dipilih ? "btn-primary" : "btn-ghost") + '" data-act="jd-anggota" data-id="' + u.id + '">' + esc(u.nama) + ' · ' + esc(ROLE_LABEL[u.peran] || u.peran) + (dipilih ? " ✓" : "") + '</button>';
+          }).join("") + '</div></div>';
+        (ui.jdWargaBaru || []).forEach(function (pid) {
+          var pw = profilById(Number(pid));
+          if (!pw || cariPenggunaAktifByNama(pw.nama)) return;
+          var dp = ui.jdPinWarga[pid] || {};
+          out += '<div style="margin-top:.75rem;padding:.75rem;border:1px dashed var(--line);border-radius:.75rem"><p style="margin:0 0 .5rem;font-weight:700">PIN untuk ' + esc(pw.nama) + ' (akun Petugas baru)</p><div class="grid2">' +
+            fld("jd-pin-" + pw.id, "PIN (4–6 angka)", "jdPinWarga:" + pw.id + ":pin", dp.pin || "", "", "password") +
+            fld("jd-pinconf-" + pw.id, "Konfirmasi PIN", "jdPinWarga:" + pw.id + ":conf", dp.conf || "", "", "password") +
+            '</div><p class="hint" style="margin:.5rem 0 0">PIN boleh sama dengan PIN akun lain yang namanya berbeda. Yang tidak boleh: nama yang sama dengan PIN yang sama. Akun dibuat saat kelompok disimpan.</p></div>';
+        });
+        return out;
+      }
+
+      /* Popup premium kelola petugas — dibuka dari tabel mingguan (atur siapa
+         bertugas di hari itu: pilih kelompok / buat baru + anggotanya) atau
+         dari kartu kelompok (ubah nama + anggota saja, jadwal tidak disentuh).
+         Klik backdrop TIDAK menutup (konsisten dengan modal login/profil)
+         supaya isian tidak hilang tak sengaja. */
+      function viewJadwalModal() {
+        var modeJadwal = ui.jdPopupHari != null;
+        var gEdit = ui.jdGroupEdit != null ? groupById(ui.jdGroupEdit) : null;
+        var judul = modeJadwal ? "Petugas hari " + namaHari(ui.jdPopupHari) : "Ubah Kelompok " + (gEdit ? gEdit.nama : "");
+        var sub = modeJadwal
+          ? (gEdit ? "Kelompok " + gEdit.nama + " bertugas hari " + namaHari(ui.jdPopupHari) + " — ubah kelompok atau anggotanya." : "Belum ada kelompok hari " + namaHari(ui.jdPopupHari) + " — pilih kelompok atau buat baru.")
+          : "Ubah nama dan anggota kelompok. Jadwal hari apa pun tidak berubah.";
+        var html = '<div class="modal-overlay"><form class="modal-card form-modal" data-form="jd-popup">' +
+          '<button type="button" class="modal-x" data-act="jd-popup-close" title="Tutup" aria-label="Tutup">' +
+          '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>' +
+          '<h2 class="sec">' + esc(judul) + '</h2>' +
+          '<div class="form-body">' +
+          (ui.jdError ? '<p class="err">' + esc(ui.jdError) + "</p>" : "") +
+          '<p class="sub" style="margin-bottom:.75rem">' + esc(sub) + '</p>';
+        if (modeJadwal) {
+          var grupAktif = state.groups.filter(function (g) { return g.aktif !== false; });
+          html += '<div><label class="lbl" for="jd-grup-popup">Kelompok yang bertugas</label>' +
+            '<select id="jd-grup-popup" class="inp" data-bind-sel="jdGroup"><option value="">— Pilih kelompok —</option>' +
+            grupAktif.map(function (g) { return '<option value="' + g.id + '"' + (String(ui.jdGroup) === String(g.id) ? " selected" : "") + '>Kelompok ' + esc(g.nama) + '</option>'; }).join("") +
+            '<option value="__baru__"' + (ui.jdGroup === "__baru__" ? " selected" : "") + '>＋ Buat kelompok baru…</option></select></div>';
+          if (ui.jdGroup === "__baru__") {
+            html += '<div style="margin-top:.75rem">' + fld("jd-nama-baru", "Nama kelompok baru", "jdNama", ui.jdNama, "mis. A atau Tim Pagi") + '</div>';
+          }
+        } else {
+          html += fld("jd-nama", "Nama kelompok", "jdNama", ui.jdNama, "mis. A atau Tim Pagi");
+        }
+        html += jdAnggotaPickerHtml();
+        html += '<div class="actions-row"><button type="submit" class="btn btn-primary">' + (modeJadwal ? "Simpan petugas hari ini" : "Simpan perubahan") + '</button>' +
+          '<button type="button" class="btn btn-ghost" data-act="jd-popup-close">Batal</button></div>' +
+          '<p class="hint">Anggota harus punya akun login (Nama + PIN) — warga yang belum punya akun dibuatkan akun Petugas saat disimpan. Akun peran bawaan (tanpa nama) tidak bisa dijadwalkan.</p>' +
+          '</div></form></div>';
         return html;
       }
 
@@ -4810,12 +4840,13 @@
           if (!canKelolaJadwal()) return;
           var ge = groupById(Number(t.getAttribute("data-id")));
           if (!ge) return;
-          ui.jdGroupEdit = ge.id; ui.jdNama = ge.nama;
+          /* Buka popup mode kelompok: ubah nama + anggota saja, jadwal tidak disentuh. */
+          ui.jdPopup = true; ui.jdPopupHari = null;
+          ui.jdGroupEdit = ge.id; ui.jdNama = ge.nama; ui.jdGroup = String(ge.id);
           ui.jdAnggota = (ge.anggota || []).map(function (x) { return String(x); });
           ui.jdWargaBaru = []; ui.jdPinWarga = {}; ui.jdWargaCari = "";
           ui.jdError = ""; ui.jdDone = ""; render();
         }
-        else if (act === "jd-group-cancel") { ui.jdGroupEdit = null; ui.jdNama = ""; ui.jdAnggota = []; ui.jdWargaBaru = []; ui.jdPinWarga = {}; ui.jdError = ""; render(); }
         else if (act === "jd-group-toggle") {
           if (!canKelolaJadwal()) return;
           var gt = groupById(Number(t.getAttribute("data-id")));
@@ -4824,15 +4855,23 @@
           logAudit("Kelompok tugas " + (gt.aktif ? "diaktifkan" : "dinonaktifkan") + ": " + gt.nama + ".");
           render();
         }
-        else if (act === "jd-sched-edit") {
+        else if (act === "jd-hari-pick") {
           if (!canKelolaJadwal()) return;
-          var se = null;
-          state.schedules.forEach(function (x) { if (x.id === Number(t.getAttribute("data-id"))) se = x; });
-          if (!se) return;
-          ui.jdSchedEdit = se.id; ui.jdHari = se.hari; ui.jdGroup = String(se.groupId);
+          var hariP = Number(t.getAttribute("data-hari"));
+          if (!isFinite(hariP) || hariP < 0 || hariP > 6) return;
+          var sP = null;
+          (state.schedules || []).forEach(function (s) { if (s.hari === hariP && s.status === "aktif") sP = s; });
+          var gP = sP ? groupById(sP.groupId) : null;
+          if (gP && gP.aktif === false) gP = null; /* kelompok nonaktif -> anggap belum ada */
+          ui.jdPopup = true; ui.jdPopupHari = hariP;
+          ui.jdGroup = gP ? String(gP.id) : "";
+          ui.jdGroupEdit = gP ? gP.id : null;
+          ui.jdNama = "";
+          ui.jdAnggota = gP ? (gP.anggota || []).map(function (x) { return String(x); }) : [];
+          ui.jdWargaBaru = []; ui.jdPinWarga = {}; ui.jdWargaCari = "";
           ui.jdError = ""; ui.jdDone = ""; render();
         }
-        else if (act === "jd-sched-cancel") { ui.jdSchedEdit = null; ui.jdHari = new Date().getDay(); ui.jdGroup = ""; ui.jdError = ""; render(); }
+        else if (act === "jd-popup-close") { tutupJdPopup(); render(); }
         else if (act === "jd-sched-batal") {
           if (!canKelolaJadwal()) return;
           var sb = null;
@@ -4890,6 +4929,21 @@
       document.addEventListener("change", function (ev) {
         var el = ev.target;
         var selBind = el.getAttribute && el.getAttribute("data-bind-sel");
+        if (selBind === "jdGroup" && ui.jdPopup && ui.jdPopupHari != null) {
+          /* Ganti kelompok di popup jadwal: muat anggota kelompok yang dipilih
+             (atau kosongkan bila buat baru / belum pilih). */
+          ui.jdGroup = el.value;
+          if (el.value === "__baru__") {
+            ui.jdGroupEdit = null; ui.jdNama = ""; ui.jdAnggota = [];
+          } else if (el.value) {
+            var gg = groupById(el.value);
+            if (gg) { ui.jdGroupEdit = gg.id; ui.jdNama = ""; ui.jdAnggota = (gg.anggota || []).map(function (x) { return String(x); }); }
+          } else {
+            ui.jdGroupEdit = null; ui.jdAnggota = [];
+          }
+          ui.jdWargaBaru = []; ui.jdPinWarga = {}; ui.jdError = "";
+          render(); return;
+        }
         if (selBind && selBind in ui) { ui[selBind] = el.value; return; }
         var bind = el.getAttribute && el.getAttribute("data-bind");
         if (bind === "fStatus") { ui.fStatus = el.value; return; }
@@ -5014,6 +5068,42 @@
           reader.readAsText(file);
         }
       });
+
+      /* Selesaikan anggota kelompok dari pilihan popup: kumpulkan userId dari
+         ui.jdAnggota (akun aktif) + buat akun Petugas baru untuk warga terpilih
+         tanpa akun. SEMUA PIN divalidasi dulu sebelum akun mana pun dibuat —
+         gagal di satu warga tidak menyisakan akun setengah jadi.
+         Kembalikan {anggota:[id]} atau {err:"..."}. */
+      function bangunAnggotaKelompok(namaG) {
+        var anggotaG = [];
+        (ui.jdAnggota || []).forEach(function (aid) {
+          state.users.forEach(function (u) { if (String(u.id) === String(aid) && u.aktif !== false) anggotaG.push(u.id); });
+        });
+        var akunBaru = [];
+        var pinErr = "";
+        (ui.jdWargaBaru || []).forEach(function (pid) {
+          if (pinErr) return;
+          var wp2 = profilById(Number(pid));
+          if (!wp2 || (wp2.statusTinggal || "aktif") !== "aktif") return;
+          var wmu2 = cariPenggunaAktifByNama(wp2.nama);
+          if (wmu2) { if (anggotaG.indexOf(wmu2.id) < 0) anggotaG.push(wmu2.id); return; }
+          var wd = ui.jdPinWarga[pid] || {};
+          var wpin = String(wd.pin || "").trim(), wconf = String(wd.conf || "").trim();
+          if (!/^[0-9]{4,6}$/.test(wpin)) { pinErr = "Isi PIN 4–6 angka untuk " + wp2.nama + " (akun Petugas baru)."; return; }
+          if (wpin !== wconf) { pinErr = "Konfirmasi PIN tidak sama untuk " + wp2.nama + "."; return; }
+          if (pinNamaSudahDipakai(wpin, wp2.nama, null) || akunBaru.some(function (b) { return b.pin === wpin && b.profil.nama.trim().toLowerCase() === wp2.nama.trim().toLowerCase(); })) { pinErr = "PIN untuk " + wp2.nama + " sudah dipakai akun lain dengan nama yang sama — pakai PIN yang berbeda."; return; }
+          akunBaru.push({ profil: wp2, pin: wpin });
+        });
+        if (pinErr) return { err: pinErr };
+        if (anggotaG.length === 0 && akunBaru.length === 0) return { err: "Pilih minimal satu anggota dari Daftar Warga atau Pengguna lain." };
+        akunBaru.forEach(function (b) {
+          var nu = { id: nextId(), nama: b.profil.nama.trim(), peran: "petugas", pin: b.pin, hp: b.profil.noHp || "", aktif: true, dibuat: todayStr() };
+          state.users.push(nu);
+          anggotaG.push(nu.id);
+          logAudit("Pengguna ditambah: " + nu.nama + " (Petugas) — dibuat dari Daftar Warga saat membentuk Kelompok " + namaG + ".");
+        });
+        return { anggota: anggotaG };
+      }
 
       document.addEventListener("submit", function (ev) {
         var form = ev.target;
@@ -5203,84 +5293,59 @@
           ui.profilPinLama = ""; ui.profilPinBaru = ""; ui.profilPinConf = ""; ui.profilPinError = ""; ui.profilPinDone = true; ui.profilPinOpen = false;
           render();
         }
-        else if (kind === "jd-group") {
+        else if (kind === "jd-popup") {
           if (!canKelolaJadwal()) { ui.jdError = "Hanya Super Admin dan Admin yang bisa mengelola kelompok."; render(); return; }
-          var namaG = (ui.jdNama || "").trim();
-          if (!namaG) { ui.jdError = "Nama kelompok wajib diisi."; render(); return; }
-          var duplikat = state.groups.some(function (g) { return g.nama.toLowerCase() === namaG.toLowerCase() && g.id !== ui.jdGroupEdit; });
-          if (duplikat) { ui.jdError = "Nama kelompok sudah dipakai — pakai nama lain."; render(); return; }
-          var anggotaG = [];
-          (ui.jdAnggota || []).forEach(function (aid) {
-            state.users.forEach(function (u) { if (String(u.id) === String(aid) && u.aktif !== false) anggotaG.push(u.id); });
-          });
-          /* Warga terpilih yang belum punya akun: validasi SEMUA PIN dulu, baru
-             buat akun — supaya gagal di satu warga tidak menyisakan akun setengah jadi. */
-          var akunBaru = [];
-          var pinErr = "";
-          (ui.jdWargaBaru || []).forEach(function (pid) {
-            if (pinErr) return;
-            var wp2 = profilById(Number(pid));
-            if (!wp2 || (wp2.statusTinggal || "aktif") !== "aktif") return;
-            var wmu2 = cariPenggunaAktifByNama(wp2.nama);
-            if (wmu2) { if (anggotaG.indexOf(wmu2.id) < 0) anggotaG.push(wmu2.id); return; }
-            var wd = ui.jdPinWarga[pid] || {};
-            var wpin = String(wd.pin || "").trim(), wconf = String(wd.conf || "").trim();
-            if (!/^[0-9]{4,6}$/.test(wpin)) { pinErr = "Isi PIN 4–6 angka untuk " + wp2.nama + " (akun Petugas baru)."; return; }
-            if (wpin !== wconf) { pinErr = "Konfirmasi PIN tidak sama untuk " + wp2.nama + "."; return; }
-            if (pinNamaSudahDipakai(wpin, wp2.nama, null) || akunBaru.some(function (b) { return b.pin === wpin && b.profil.nama.trim().toLowerCase() === wp2.nama.trim().toLowerCase(); })) { pinErr = "PIN untuk " + wp2.nama + " sudah dipakai akun lain dengan nama yang sama — pakai PIN yang berbeda."; return; }
-            akunBaru.push({ profil: wp2, pin: wpin });
-          });
-          if (pinErr) { ui.jdError = pinErr; render(); return; }
-          if (anggotaG.length === 0 && akunBaru.length === 0) { ui.jdError = "Pilih minimal satu anggota dari Daftar Warga atau Pengguna lain."; render(); return; }
-          akunBaru.forEach(function (b) {
-            var nu = { id: nextId(), nama: b.profil.nama.trim(), peran: "petugas", pin: b.pin, hp: b.profil.noHp || "", aktif: true, dibuat: todayStr() };
-            state.users.push(nu);
-            anggotaG.push(nu.id);
-            logAudit("Pengguna ditambah: " + nu.nama + " (Petugas) — dibuat dari Daftar Warga saat membentuk Kelompok " + namaG + ".");
-          });
-          if (ui.jdGroupEdit != null) {
-            state.groups.forEach(function (g) { if (g.id === ui.jdGroupEdit) { g.nama = namaG; g.anggota = anggotaG; } });
-            logAudit("Kelompok tugas diubah: " + namaG + " (" + anggotaG.length + " anggota).");
-            ui.jdDone = "Kelompok " + namaG + " diperbarui.";
-          } else {
-            state.groups.push({ id: nextId(), nama: namaG, anggota: anggotaG, aktif: true });
-            logAudit("Kelompok tugas ditambah: " + namaG + " (" + anggotaG.length + " anggota).");
-            ui.jdDone = "Kelompok " + namaG + " ditambahkan.";
-          }
-          ui.jdGroupEdit = null; ui.jdNama = ""; ui.jdAnggota = []; ui.jdWargaBaru = []; ui.jdPinWarga = {}; ui.jdError = "";
-          render();
-        }
-        else if (kind === "jd-sched") {
-          if (!canKelolaJadwal()) { ui.jdError = "Hanya Super Admin dan Admin yang bisa mengelola jadwal."; render(); return; }
-          var hariJ = Number(ui.jdHari);
-          if (!isFinite(hariJ) || Math.floor(hariJ) !== hariJ || hariJ < 0 || hariJ > 6) { ui.jdError = "Pilih hari jadwal."; render(); return; }
-          var gJ = null;
-          state.groups.forEach(function (g) { if (String(g.id) === String(ui.jdGroup)) gJ = g; });
-          if (!gJ) { ui.jdError = "Pilih kelompok yang bertugas."; render(); return; }
-          if (gJ.aktif === false) { ui.jdError = "Kelompok " + gJ.nama + " sedang nonaktif — pilih kelompok aktif."; render(); return; }
-          if (ui.jdSchedEdit != null) {
-            var target = null;
-            state.schedules.forEach(function (s) { if (s.id === ui.jdSchedEdit) target = s; });
-            if (!target) { ui.jdSchedEdit = null; render(); return; }
-            var bentrok = state.schedules.some(function (s) { return s.id !== target.id && s.hari === hariJ && s.status === "aktif"; });
-            if (bentrok) { ui.jdError = "Hari " + namaHari(hariJ) + " sudah punya jadwal aktif — ubah jadwal tersebut."; render(); return; }
-            target.hari = hariJ; target.groupId = gJ.id; target.status = "aktif";
-            logAudit("Jadwal keliling diubah: hari " + namaHari(hariJ) + " — Kelompok " + gJ.nama + ".");
-            ui.jdDone = "Jadwal hari " + namaHari(hariJ) + " diperbarui: Kelompok " + gJ.nama + ".";
-          } else {
+          var modeJadwal = ui.jdPopupHari != null;
+          var pesan = "", grupSimpan = null;
+          if (modeJadwal) {
+            /* Dari tabel mingguan: pilih kelompok (atau buat baru) + anggotanya,
+               lalu arahkan jadwal hari itu ke kelompok tersebut. */
+            if (ui.jdGroup === "__baru__") {
+              var namaBaru = (ui.jdNama || "").trim();
+              if (!namaBaru) { ui.jdError = "Nama kelompok wajib diisi."; render(); return; }
+              if (state.groups.some(function (g) { return g.nama.toLowerCase() === namaBaru.toLowerCase(); })) { ui.jdError = "Nama kelompok sudah dipakai — pakai nama lain."; render(); return; }
+              var hb = bangunAnggotaKelompok(namaBaru);
+              if (hb.err) { ui.jdError = hb.err; render(); return; }
+              grupSimpan = { id: nextId(), nama: namaBaru, anggota: hb.anggota, aktif: true };
+              state.groups.push(grupSimpan);
+              logAudit("Kelompok tugas ditambah: " + namaBaru + " (" + hb.anggota.length + " anggota).");
+            } else if (ui.jdGroup) {
+              grupSimpan = groupById(ui.jdGroup);
+              if (!grupSimpan) { ui.jdError = "Kelompok tidak ditemukan — pilih lagi."; render(); return; }
+              if (grupSimpan.aktif === false) { ui.jdError = "Kelompok " + grupSimpan.nama + " sedang nonaktif — pilih kelompok aktif."; render(); return; }
+              var hg = bangunAnggotaKelompok(grupSimpan.nama);
+              if (hg.err) { ui.jdError = hg.err; render(); return; }
+              grupSimpan.anggota = hg.anggota;
+              logAudit("Kelompok tugas diubah: " + grupSimpan.nama + " (" + hg.anggota.length + " anggota).");
+            } else {
+              ui.jdError = "Pilih kelompok yang bertugas hari itu."; render(); return;
+            }
+            var hariJ = ui.jdPopupHari;
             var ada = null;
             state.schedules.forEach(function (s) { if (s.hari === hariJ && s.status === "aktif") ada = s; });
             if (ada) {
-              ada.groupId = gJ.id;
-              logAudit("Jadwal keliling diubah: hari " + namaHari(hariJ) + " — Kelompok " + gJ.nama + ".");
-              ui.jdDone = "Jadwal hari " + namaHari(hariJ) + " diperbarui: Kelompok " + gJ.nama + ".";
+              ada.groupId = grupSimpan.id;
+              logAudit("Jadwal keliling diubah: hari " + namaHari(hariJ) + " — Kelompok " + grupSimpan.nama + ".");
             } else {
-              state.schedules.push({ id: nextId(), hari: hariJ, groupId: gJ.id, dibuatOleh: state.nama.trim() || "(tanpa nama)", status: "aktif" });
-              logAudit("Jadwal keliling ditetapkan: hari " + namaHari(hariJ) + " — Kelompok " + gJ.nama + ".");
-              ui.jdDone = "Jadwal hari " + namaHari(hariJ) + " ditetapkan: Kelompok " + gJ.nama + ".";
+              state.schedules.push({ id: nextId(), hari: hariJ, groupId: grupSimpan.id, dibuatOleh: state.nama.trim() || "(tanpa nama)", status: "aktif" });
+              logAudit("Jadwal keliling ditetapkan: hari " + namaHari(hariJ) + " — Kelompok " + grupSimpan.nama + ".");
             }
+            pesan = "Petugas hari " + namaHari(hariJ) + ": Kelompok " + grupSimpan.nama + ".";
+          } else {
+            /* Dari kartu kelompok: ubah nama + anggota saja — jadwal tidak disentuh. */
+            var namaK = (ui.jdNama || "").trim();
+            if (!namaK) { ui.jdError = "Nama kelompok wajib diisi."; render(); return; }
+            if (state.groups.some(function (g) { return g.nama.toLowerCase() === namaK.toLowerCase() && g.id !== ui.jdGroupEdit; })) { ui.jdError = "Nama kelompok sudah dipakai — pakai nama lain."; render(); return; }
+            grupSimpan = groupById(ui.jdGroupEdit);
+            if (!grupSimpan) { ui.jdError = "Kelompok tidak ditemukan."; render(); return; }
+            var hk = bangunAnggotaKelompok(namaK);
+            if (hk.err) { ui.jdError = hk.err; render(); return; }
+            grupSimpan.nama = namaK; grupSimpan.anggota = hk.anggota;
+            logAudit("Kelompok tugas diubah: " + namaK + " (" + hk.anggota.length + " anggota).");
+            pesan = "Kelompok " + namaK + " diperbarui.";
           }
-          ui.jdSchedEdit = null; ui.jdError = "";
+          tutupJdPopup();
+          ui.jdDone = pesan;
           render();
         }
         else if (kind === "custom") {
