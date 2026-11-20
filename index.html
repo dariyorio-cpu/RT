@@ -1011,6 +1011,7 @@
         eKas: "utama",
         houseArsipFor: null, houseArsipReason: "",
         houseHapusFor: null,
+        pfHapusFor: null,   /* profil warga yang panel hapusnya terbuka */
         jdNama: "", jdAnggota: [], jdGroupEdit: null,   /* form kelompok tugas */
         jdTgl: todayStr(), jdGroup: "", jdSchedEdit: null, jdError: "", jdDone: ""
       };
@@ -1560,6 +1561,20 @@
         if (setoran) rincian.push(setoran + " setoran jimpitan");
         if (profil) rincian.push(profil + " profil warga terhubung");
         return { setoran: setoran, profil: profil, punya: (setoran + profil) > 0, rincian: rincian };
+      }
+      /* Riwayat yang mengikat sebuah profil warga: status Pindah/Meninggal,
+         dan/atau entri riwayat apa pun (termasuk "Aktif kembali" — jejak bahwa
+         warga itu pernah pindah). Profil berriwayat tidak pernah dihapus
+         permanen; status Pindah/Meninggal itu sendiri sudah bentuk arsipnya.
+         Satu-satunya tautan profil ke data lain adalah houseId -> rumah
+         (dihitung houseRiwayat); setoran/iuran/bayar tidak menunjuk profil. */
+      function profilRiwayat(p) {
+        var st = p.statusTinggal || "aktif";
+        var n = (p.riwayat || []).length;
+        var rincian = [];
+        if (st !== "aktif") rincian.push("status " + (st === "pindah" ? "Pindah" : "Meninggal"));
+        if (n) rincian.push(n + " entri riwayat");
+        return { punya: st !== "aktif" || n > 0, rincian: rincian };
       }
       function sortedHouses() {
         return state.houses.slice().sort(function (a, b) {
@@ -3172,6 +3187,7 @@
                 '<td>' + statusBadge(st === "aktif" ? "Aktif" : st === "pindah" ? "Pindah" : "Meninggal") + '</td>' +
                 '<td><div class="tbl-actions">' +
                 (manage ? '<button type="button" class="btn btn-ghost" data-act="pf-edit" data-id="' + p.id + '">Ubah</button>' : "") +
+                (isSuper() ? '<button type="button" class="btn btn-danger-ghost" data-act="pf-hapus-open" data-id="' + p.id + '">Hapus</button>' : "") +
                 '</div></td></tr>';
               if (p.riwayat && p.riwayat.length) {
                 html += '<tr class="tbl-detail"><td colspan="14">' + p.riwayat.slice().reverse().map(function (r) {
@@ -3181,6 +3197,24 @@
               }
             });
             html += '</tbody></table></div>';
+          }
+          if (isSuper() && ui.pfHapusFor) {
+            var pHapus = profilById(ui.pfHapusFor);
+            if (pHapus) {
+              var rwP = profilRiwayat(pHapus);
+              if (rwP.punya) {
+                html += '<div class="card" style="padding:.75rem 1rem;border-color:var(--danger);margin-top:.75rem">' +
+                  '<p style="margin:0 0 .25rem;font-weight:700">Profil ' + esc(pHapus.nama) + ' tidak bisa dihapus permanen</p>' +
+                  '<p class="s" style="margin:0 0 .5rem">Profil ini masih punya riwayat: ' + esc(rwP.rincian.join(", ")) + '. Datanya dipertahankan sebagai riwayat warga \u2014 status Pindah/Meninggal itu sendiri sudah bentuk arsipnya, jadi tidak ada yang perlu dihapus.</p>' +
+                  '<div class="actions-row"><button type="button" class="btn btn-ghost" data-act="pf-hapus-close">Tutup</button></div></div>';
+              } else {
+                html += '<form class="card" data-form="pf-hapus" data-id="' + pHapus.id + '" style="padding:.75rem 1rem;border-color:var(--danger);margin-top:.75rem">' +
+                  '<p style="margin:0 0 .25rem;font-weight:700">Hapus profil ' + esc(pHapus.nama) + ' (NIK ' + esc(pHapus.nik || "-") + ')?</p>' +
+                  '<p class="s" style="margin:0 0 .5rem">Profil ini masih berstatus Aktif dan belum punya riwayat pindah/meninggal, jadi aman dihapus permanen. Tindakan ini tidak bisa dibatalkan.</p>' +
+                  '<div class="actions-row"><button type="submit" class="btn btn-danger">Ya, hapus permanen</button>' +
+                  '<button type="button" class="btn btn-ghost" data-act="pf-hapus-close">Batal</button></div></form>';
+              }
+            }
           }
         }
 
@@ -4347,6 +4381,8 @@
           ui.rtError = ""; ui.rtDone = ""; ui.pfModal = true; render();
           var pfN2 = document.getElementById("pf-nama"); if (pfN2) pfN2.focus();
         }
+        else if (act === "pf-hapus-open") { if (!isSuper()) return; ui.pfHapusFor = Number(t.getAttribute("data-id")); render(); }
+        else if (act === "pf-hapus-close") { ui.pfHapusFor = null; render(); }
         else if (act === "warga-cancel") { ui.wEdit = null; ui.wNama = ""; ui.wAlamat = ""; ui.wHp = ""; ui.wStatus = "aktif"; ui.wRt = ""; render(); }
         else if (act === "warga-edit") {
           if (!canKelola()) return;
@@ -5190,6 +5226,21 @@
           if (String(ui.pfHouse) === String(hd.id)) ui.pfHouse = "";
           logAudit("Data rumah dihapus: Rumah " + hd.nomor + " (" + hd.namaPenghuni + ") — belum punya riwayat setoran/warga.");
           ui.houseHapusFor = null; ui.error = "";
+          render();
+        }
+        else if (kind === "pf-hapus") {
+          if (!isSuper()) return;
+          var pd = profilById(Number(form.getAttribute("data-id")));
+          if (!pd) { ui.pfHapusFor = null; render(); return; }
+          var rwP2 = profilRiwayat(pd);
+          if (rwP2.punya) {
+            ui.rtError = "Profil " + pd.nama + " tidak bisa dihapus permanen \u2014 masih punya riwayat (" + rwP2.rincian.join(", ") + "). Datanya dipertahankan sebagai riwayat warga.";
+            ui.pfHapusFor = null; render(); return;
+          }
+          state.profil = state.profil.filter(function (pp) { return pp.id !== pd.id; });
+          if (ui.pfEdit === pd.id) { ui.pfEdit = null; ui.pfModal = false; resetProfilForm(); }
+          logAudit("Profil warga dihapus: " + pd.nama + " (NIK " + (pd.nik || "-") + ") \u2014 belum punya riwayat pindah/meninggal.");
+          ui.pfHapusFor = null; ui.rtError = ""; ui.rtDone = "Profil " + pd.nama + " dihapus permanen.";
           render();
         }
         else if (kind === "my-login") {
