@@ -833,6 +833,30 @@
       .data-table tr.tbl-detail .card { margin: 0; box-shadow: none; }
       .tbl-detail-label { font-weight: 700; color: var(--text); }
       .data-table tr.tbl-detail .s { margin: 0.125rem 0; }
+      .data-table-keliling { min-width: 56rem; }
+      .data-table-jadwal { min-width: 44rem; }
+      .data-table-narrow { min-width: 34rem; }
+      .data-table tbody tr.row-today:not(.tbl-detail) td { background: var(--accent-soft); }
+      .data-table tbody tr.row-today:not(.tbl-detail) td:first-child { background: var(--accent-soft); }
+      .stat .stat-sub { font-size: 0.75rem; color: var(--dim); margin: 0.125rem 0 0; }
+      .stat .stat-sub b { color: var(--text); }
+      /* Kartu sorot "Hari ini" di Jadwal Keliling — gradien emerald + emas. */
+      .hero-hari {
+        background: linear-gradient(180deg, #0b6b4e 0%, #074433 100%);
+        color: #fff; border: 1px solid rgba(217, 168, 63, 0.4);
+        border-bottom: 3px solid #d9a83f; border-radius: 1rem;
+        padding: 1rem 1.25rem; box-shadow: var(--shadow);
+      }
+      .hero-hari .kicker { margin: 0; font-size: 0.6875rem; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: #d9a83f; }
+      .hero-hari .nama-hari { margin: 0.25rem 0 0; font-size: 1.75rem; font-weight: 800; letter-spacing: -0.02em; }
+      .hero-hari .tgl { margin: 0.125rem 0 0; font-size: 0.875rem; font-weight: 600; color: rgba(255, 255, 255, 0.85); }
+      .hero-hari .tugas { margin: 0.75rem 0 0; font-size: 1rem; font-weight: 700; }
+      .hero-hari .anggota { margin: 0.25rem 0 0; font-size: 0.875rem; color: rgba(255, 255, 255, 0.85); }
+      /* Judul kartu form premium — garis bawah emas seperti header tabel. */
+      .card-title { margin: 0 0 0.75rem; font-weight: 800; font-size: 1rem; padding-bottom: 0.5rem; border-bottom: 2px solid #d9a83f; }
+      /* Kartu kelompok tugas dalam grid responsif. */
+      .kelompok-grid { display: grid; gap: 0.75rem; }
+      @media (min-width: 720px) { .kelompok-grid { grid-template-columns: 1fr 1fr; } }
       @media (max-width: 640px) {
         .data-table { min-width: 52rem; }
         .data-table-profil { min-width: 68rem; }
@@ -2504,6 +2528,16 @@
           html += '<div class="notice-amber"><p style="margin:0;font-size:.875rem;font-weight:700">' + esc(cekJadwal.pesan) + '</p>' +
             '<p style="margin:.25rem 0 0;font-size:.8125rem">Pencatatan setoran hanya bisa dilakukan anggota kelompok yang bertugas pada tanggal ini.</p></div>';
         }
+        /* Strip ringkasan premium: kelompok bertugas, terkumpul (jimpitan + kelebihan),
+           rumah sudah setor, menunggu verifikasi. */
+        var totJimpitan = sheet.summary.totalTerkumpul - sheet.summary.totalKelebihan;
+        html += '<div class="stats">' +
+          statCard("Kelompok bertugas", cekJadwal.ok ? "Kelompok " + cekJadwal.group.nama : "Belum ada") +
+          '<div class="card stat"><p class="lab">Terkumpul hari ini</p><p class="val num">' + rp(sheet.summary.totalTerkumpul) + '</p>' +
+          '<p class="stat-sub">Jimpitan <b>' + rp(totJimpitan) + '</b> · Kelebihan <b>' + rp(sheet.summary.totalKelebihan) + '</b></p></div>' +
+          statCard("Rumah sudah setor", sheet.summary.sudahSetor + " / " + sheet.rows.length) +
+          statCard("Menunggu verifikasi", String(sheet.summary.menungguVerifikasi), sheet.summary.menungguVerifikasi > 0) +
+          '</div>';
         html += '<div class="grid2">';
         html += '<div><p class="lbl" style="margin-bottom:.25rem">Tanggal keliling</p>' +
           '<p style="margin:0;font-weight:700">Hari ini, ' + esc(fmtTanggal(tanggal)) + '</p>' +
@@ -2519,76 +2553,74 @@
         }
         html += "</div>";
         if (ui.error) html += '<p class="err">' + esc(ui.error) + "</p>";
-        html += '<div class="badges-row">' + badge("green", "Terkumpul " + rp(sheet.summary.totalTerkumpul)) +
-          badge("gray", sheet.summary.sudahSetor + " rumah sudah setor") +
-          (sheet.summary.totalKelebihan > 0 ? badge("amber", "Kelebihan " + rp(sheet.summary.totalKelebihan)) : "") +
-          (bendaharaPlus && sheet.summary.menungguVerifikasi > 0
-            ? '<button type="button" class="btn btn-primary" data-act="verify-all">Verifikasi semua (' + sheet.summary.menungguVerifikasi + ")</button>" : "") +
-          "</div>";
         if (sheet.rows.length === 0) {
           html += '<p class="empty">Belum ada data rumah. Tambahkan rumah dulu di tab Rumah.</p>';
-        }
-        html += '<div class="list">';
-        sheet.rows.forEach(function (r) {
-          var h = r.house, c = r.collection;
-          html += '<div class="card"><div style="display:flex;align-items:flex-start;justify-content:space-between;gap:.75rem"><div>' +
-            '<p style="margin:0;font-weight:700">Rumah ' + esc(h.nomor) +
-            (h.blok ? ' <span style="font-weight:600;color:var(--dim)">· Blok ' + esc(h.blok) + "</span>" : "") + "</p>" +
-            '<p class="s" style="font-size:.875rem;color:var(--dim);margin:0">' + esc(h.namaPenghuni) + (h.hp ? " · " + esc(h.hp) : "") + "</p>" +
-            (h.status === "kosong" ? badge("gray", "Rumah kosong") : "") +
-            "</div>";
-          if (c) {
-            html += '<div><p class="num" style="margin:0;font-size:1.125rem;font-weight:800;text-align:right">' + rp(c.total) + "</p>" +
-              (c.kelebihan > 0 ? '<p class="num" style="margin:0;font-size:.75rem;font-weight:600;color:var(--amber);text-align:right">' +
-                rp(c.jimpitan) + " jimpitan + " + rp(c.kelebihan) + " lebih</p>" : "") + "</div>";
+        } else {
+          html += '<p class="sub">Menampilkan ' + sheet.rows.length + ' rumah · ' + sheet.summary.sudahSetor + ' sudah setor · ' + sheet.summary.menungguVerifikasi + ' menunggu verifikasi</p>';
+          if (bendaharaPlus && sheet.summary.menungguVerifikasi > 0) {
+            html += '<div class="actions-row" style="justify-content:flex-end"><button type="button" class="btn btn-primary" data-act="verify-all">Verifikasi semua (' + sheet.summary.menungguVerifikasi + ")</button></div>";
           }
-          html += "</div>";
-          if (c) {
-            html += '<div style="margin-top:.75rem"><div class="badges-row">' +
-              (c.status === "terverifikasi"
-                ? badge("green", "Terverifikasi" + (c.diverifikasiOleh ? " · " + c.diverifikasiOleh : ""))
-                : badge("amber", "Menunggu verifikasi")) +
-              '<span style="font-size:.75rem;color:var(--dim)">petugas ' + esc(c.petugas) + (c.jam ? " · " + esc(c.jam) : "") + "</span></div>";
-            if (canWrite) {
-              html += '<div class="actions-row">';
-              if (bendaharaPlus && c.status === "menunggu") {
-                html += '<button type="button" class="btn btn-primary" data-act="verify" data-id="' + c.id + '">Verifikasi</button>';
+          html += '<div class="tbl-wrap"><table class="data-table data-table-keliling"><thead><tr>' +
+            '<th>Rumah</th><th>Penghuni</th><th class="num">Nominal</th><th class="num">Jimpitan</th><th class="num">Kelebihan</th><th>Jam</th><th>Petugas</th><th>Status</th><th>Aksi</th>' +
+            '</tr></thead><tbody>';
+          sheet.rows.forEach(function (r) {
+            var h = r.house, c = r.collection;
+            html += '<tr><td><strong>Rumah ' + esc(h.nomor) + '</strong>' +
+              (h.blok ? '<br><span style="font-size:.75rem;color:var(--dim)">Blok ' + esc(h.blok) + '</span>' : "") +
+              (h.status === "kosong" ? '<br>' + badge("gray", "Rumah kosong") : "") + '</td>' +
+              '<td><strong>' + esc(h.namaPenghuni) + '</strong>' +
+              (h.hp ? '<br><span style="font-size:.75rem;color:var(--dim)">' + esc(h.hp) + '</span>' : "") + '</td>' +
+              '<td class="num">' + (c ? '<strong>' + rp(c.total) + '</strong>' : '<span style="color:var(--dim)">' + rp(r.nominal) + '</span>') + '</td>' +
+              '<td class="num">' + (c ? rp(c.jimpitan) : "—") + '</td>' +
+              '<td class="num">' + (c && c.kelebihan > 0 ? '<strong style="color:var(--amber)">' + rp(c.kelebihan) + '</strong>' : "—") + '</td>' +
+              '<td class="nowrap">' + (c && c.jam ? esc(c.jam) : "—") + '</td>' +
+              '<td>' + (c ? esc(c.petugas) : "—") + '</td>' +
+              '<td>' + (c
+                ? (c.status === "terverifikasi"
+                  ? badge("green", "Terverifikasi") + (c.diverifikasiOleh ? '<br><span style="font-size:.75rem;color:var(--dim)">oleh ' + esc(c.diverifikasiOleh) + '</span>' : "")
+                  : badge("amber", "Menunggu verifikasi"))
+                : badge("gray", "Belum setor")) + '</td>' +
+              '<td><div class="tbl-actions">';
+            if (c) {
+              if (canWrite) {
+                if (bendaharaPlus && c.status === "menunggu") {
+                  html += '<button type="button" class="btn btn-primary" data-act="verify" data-id="' + c.id + '">Verifikasi</button>';
+                }
+                if (cekJadwal.ok) html += '<button type="button" class="btn btn-ghost" data-act="custom-open" data-house="' + h.id + '" data-val="' + c.total + '">Ubah nominal</button>';
+                html += '<button type="button" class="btn btn-danger-ghost" data-act="void-open" data-id="' + c.id + '">Batalkan</button>';
               }
-              if (cekJadwal.ok) html += '<button type="button" class="btn btn-ghost" data-act="custom-open" data-house="' + h.id + '" data-val="' + c.total + '">Ubah nominal</button>';
-              html += '<button type="button" class="btn btn-danger-ghost" data-act="void-open" data-id="' + c.id + '">Batalkan</button></div>';
+            } else if (canWrite && cekJadwal.ok) {
+              html += '<button type="button" class="btn btn-primary" data-act="catat" data-house="' + h.id + '" data-total="' + r.nominal + '">' + rp(r.nominal) + '</button>' +
+                '<button type="button" class="btn btn-amber" data-act="catat" data-house="' + h.id + '" data-total="' + (r.nominal * 2) + '">' + rp(r.nominal * 2) + '</button>' +
+                '<button type="button" class="btn btn-ghost" data-act="custom-open" data-house="' + h.id + '" data-val="">Nominal lain…</button>';
+            } else if (canWrite) {
+              html += '<span style="font-size:.75rem;color:var(--dim)">' + esc(cekJadwal.pesan) + '</span>';
+            } else {
+              html += '<span style="font-size:.75rem;color:var(--dim)">Belum setor hari ini.</span>';
             }
-            html += "</div>";
-          } else if (canWrite && cekJadwal.ok) {
-            html += '<div class="actions-row">' +
-              '<button type="button" class="btn btn-primary" data-act="catat" data-house="' + h.id + '" data-total="' + r.nominal + '">' + rp(r.nominal) + "</button>" +
-              '<button type="button" class="btn btn-amber" data-act="catat" data-house="' + h.id + '" data-total="' + (r.nominal * 2) + '">' + rp(r.nominal * 2) + "</button>" +
-              '<button type="button" class="btn btn-ghost" data-act="custom-open" data-house="' + h.id + '" data-val="">Nominal lain…</button></div>';
-          } else if (canWrite) {
-            html += '<p class="sub" style="margin-top:.5rem">' + esc(cekJadwal.pesan) + '</p>';
-          } else {
-            html += '<p class="sub" style="margin-top:.5rem">Belum setor hari ini.</p>';
-          }
-          if (canWrite && cekJadwal.ok && ui.customFor === h.id) {
-            html += '<form class="inline-form" data-form="custom" data-house="' + h.id + '">' +
-              '<label class="lbl" for="nominal-' + h.id + '">Nominal setoran rumah ' + esc(h.nomor) + " (Rp)</label>" +
-              '<div style="display:flex;flex-wrap:wrap;gap:.5rem;align-items:flex-end">' +
-              '<input id="nominal-' + h.id + '" type="number" inputmode="numeric" min="1" class="inp" style="flex:1;min-width:10rem" value="' +
-              esc(ui.customVal) + '" data-bind="customVal">' +
-              '<button type="submit" class="btn btn-primary">Simpan</button>' +
-              '<button type="button" class="btn btn-ghost" data-act="custom-close">Tutup</button></div></form>';
-          }
-          if (canWrite && c && ui.voidFor === c.id) {
-            html += '<form class="inline-form" data-form="void" data-id="' + c.id + '">' +
-              '<label class="lbl" for="batal-' + c.id + '">Alasan membatalkan setoran rumah ' + esc(h.nomor) + "</label>" +
-              '<input id="batal-' + c.id + '" type="text" class="inp" placeholder="mis. salah catat nominal" value="' +
-              esc(ui.voidReason) + '" data-bind="voidReason">' +
-              '<div class="actions-row"><button type="submit" class="btn btn-danger">Batalkan setoran</button>' +
-              '<button type="button" class="btn btn-ghost" data-act="void-close">Kembali</button></div>' +
-              '<p class="hint">Catatan tidak dihapus — hanya berstatus batal dan tidak dihitung di kas, supaya jejak koreksinya tetap ada.</p></form>';
-          }
-          html += "</div>";
-        });
-        html += "</div></div>";
+            html += '</div></td></tr>';
+            if (canWrite && cekJadwal.ok && ui.customFor === h.id) {
+              html += '<tr class="tbl-detail"><td colspan="9"><form class="inline-form" data-form="custom" data-house="' + h.id + '">' +
+                '<label class="lbl" for="nominal-' + h.id + '">Nominal setoran rumah ' + esc(h.nomor) + ' (Rp)</label>' +
+                '<div style="display:flex;flex-wrap:wrap;gap:.5rem;align-items:flex-end">' +
+                '<input id="nominal-' + h.id + '" type="number" inputmode="numeric" min="1" class="inp" style="flex:1;min-width:10rem" value="' +
+                esc(ui.customVal) + '" data-bind="customVal">' +
+                '<button type="submit" class="btn btn-primary">Simpan</button>' +
+                '<button type="button" class="btn btn-ghost" data-act="custom-close">Tutup</button></div></form></td></tr>';
+            }
+            if (canWrite && c && ui.voidFor === c.id) {
+              html += '<tr class="tbl-detail"><td colspan="9"><form class="inline-form" data-form="void" data-id="' + c.id + '">' +
+                '<label class="lbl" for="batal-' + c.id + '">Alasan membatalkan setoran rumah ' + esc(h.nomor) + '</label>' +
+                '<input id="batal-' + c.id + '" type="text" class="inp" placeholder="mis. salah catat nominal" value="' +
+                esc(ui.voidReason) + '" data-bind="voidReason">' +
+                '<div class="actions-row"><button type="submit" class="btn btn-danger">Batalkan setoran</button>' +
+                '<button type="button" class="btn btn-ghost" data-act="void-close">Kembali</button></div>' +
+                '<p class="hint">Catatan tidak dihapus — hanya berstatus batal dan tidak dihitung di kas, supaya jejak koreksinya tetap ada.</p></form></td></tr>';
+            }
+          });
+          html += '</tbody></table></div>';
+        }
+        html += '</div>';
         return html;
       }
 
@@ -2609,62 +2641,78 @@
           '<p class="sub">Admin menetapkan kelompok yang bertugas untuk tiap hari dalam seminggu (Senin–Minggu). Jadwal berulang setiap minggu — tanggal dan jam mengikuti sistem otomatis, jadi tidak perlu menetapkan tanggal satu per satu. Hanya anggota kelompok yang bertugas hari itu yang bisa mencatat setoran jimpitan — aturan ini berlaku untuk semua peran, termasuk Super Admin. Bila belum ada jadwal, tidak ada yang bisa mencatat sampai admin menetapkan jadwal hari itu.</p></section>';
         if (ui.jdError) html += '<p class="err">' + esc(ui.jdError) + '</p>';
         if (ui.jdDone) html += '<p class="ok-note">' + esc(ui.jdDone) + '</p>';
-        /* Kartu Hari ini — hari + tanggal otomatis dari jam sistem */
-        html += '<section class="card"><h3 style="margin:0 0 .25rem">Hari ini · ' + esc(fmtTanggal(hariIni)) + '</h3>';
+        /* Kartu sorot Hari ini — hari + tanggal otomatis dari jam sistem */
+        html += '<section class="hero-hari"><p class="kicker">Jadwal keliling · Hari ini</p>' +
+          '<h3 class="nama-hari">' + esc(namaHari(hariKe(hariIni))) + '</h3>' +
+          '<p class="tgl">' + esc(fmtTanggal(hariIni)) + '</p>';
         if (jHariIni) {
-          html += '<p style="margin:.25rem 0;font-weight:700">Kelompok ' + esc(jHariIni.group.nama) + ' bertugas</p>' +
-            '<p class="s" style="margin:0">Anggota: ' + esc(namaAnggota(jHariIni.group).map(function (a) { return a.nama + " (" + a.peran + ")"; }).join(", ")) + '</p>';
+          html += '<p class="tugas">Kelompok ' + esc(jHariIni.group.nama) + ' bertugas</p>' +
+            '<p class="anggota">Anggota: ' + esc(namaAnggota(jHariIni.group).map(function (a) { return a.nama + " (" + a.peran + ")"; }).join(", ")) + '</p>';
         } else {
-          html += '<p style="margin:.25rem 0;font-weight:700">Belum ada jadwal</p>' +
-            '<p class="s" style="margin:0">Belum ada kelompok yang bertugas hari ini (' + esc(namaHari(hariKe(hariIni))) + ') — pencatatan jimpitan terkunci sampai ' + (kelola ? "admin menetapkan jadwal di bawah." : "admin menetapkan jadwal.") + '</p>';
+          html += '<p class="tugas">Belum ada jadwal</p>' +
+            '<p class="anggota">Belum ada kelompok yang bertugas hari ini (' + esc(namaHari(hariKe(hariIni))) + ') — pencatatan jimpitan terkunci sampai ' + (kelola ? "admin menetapkan jadwal di bawah." : "admin menetapkan jadwal.") + '</p>';
         }
         html += '</section>';
-        /* Pola mingguan: satu kelompok per hari (Senin–Minggu), berulang */
-        html += '<section><h2 class="sec">Jadwal mingguan (berulang)</h2><div class="list" style="margin-top:.75rem">';
+        /* Pola mingguan: satu kelompok per hari (Senin–Minggu), berulang — tabel premium */
+        html += '<section><h2 class="sec">Jadwal mingguan (berulang)</h2><div class="tbl-wrap"><table class="data-table data-table-jadwal"><thead><tr>' +
+          '<th>Hari</th><th>Kelompok</th><th>Anggota</th><th>Ditetapkan oleh</th><th>Status</th><th>Aksi</th>' +
+          '</tr></thead><tbody>';
         URUTAN_HARI.forEach(function (h) {
           var sAktif = null, sBatal = null;
           (state.schedules || []).forEach(function (s) {
             if (s.hari === h) { if (s.status === "aktif") sAktif = s; else sBatal = s; }
           });
           var g = sAktif ? groupById(sAktif.groupId) : null;
-          html += '<div class="row-item"><div><p class="t">' + esc(namaHari(h)) + (h === hariKe(hariIni) ? " · hari ini" : "") + '</p>' +
-            '<p class="s">' + (g ? "Kelompok " + esc(g.nama) + " · " + esc(namaAnggota(g).map(function (a) { return a.nama; }).join(", ")) : "Belum ditetapkan") +
-            (sAktif && sAktif.dibuatOleh ? " · ditetapkan oleh " + esc(sAktif.dibuatOleh) : "") +
-            (!sAktif && sBatal ? " · jadwal dibatalkan" : "") + '</p></div>' +
-            '<div style="display:flex;gap:.375rem;flex-wrap:wrap;justify-content:flex-end;align-items:center">' +
-            statusBadge(sAktif ? "Aktif" : "Belum ada") +
+          var isHariIni = h === hariKe(hariIni);
+          html += '<tr' + (isHariIni ? ' class="row-today"' : "") + '><td><strong>' + esc(namaHari(h)) + '</strong>' +
+            (isHariIni ? ' <span class="badge badge-green">hari ini</span>' : "") + '</td>' +
+            '<td>' + (g ? '<strong>Kelompok ' + esc(g.nama) + '</strong>' : '<span style="color:var(--dim)">Belum ditetapkan</span>') + '</td>' +
+            '<td>' + (g ? esc(namaAnggota(g).map(function (a) { return a.nama; }).join(", ")) : "—") + '</td>' +
+            '<td>' + (sAktif && sAktif.dibuatOleh ? esc(sAktif.dibuatOleh) : "—") + '</td>' +
+            '<td>' + statusBadge(sAktif ? "Aktif" : "Belum ada") +
+            (!sAktif && sBatal ? '<br><span style="font-size:.75rem;color:var(--dim)">jadwal dibatalkan</span>' : "") + '</td>' +
+            '<td><div class="tbl-actions">' +
             (kelola && sAktif
               ? '<button type="button" class="btn btn-ghost" data-act="jd-sched-edit" data-id="' + sAktif.id + '">Ubah</button>' +
                 '<button type="button" class="btn btn-danger-ghost" data-act="jd-sched-batal" data-id="' + sAktif.id + '">Batalkan</button>'
-              : "") + '</div></div>';
+              : "") + '</div></td></tr>';
         });
-        html += '</div></section>';
-        /* 14 hari ke depan — diturunkan otomatis dari pola mingguan */
-        html += '<section><h2 class="sec">14 hari ke depan (otomatis)</h2><div class="list" style="margin-top:.75rem">';
+        html += '</tbody></table></div></section>';
+        /* 14 hari ke depan — diturunkan otomatis dari pola mingguan, tabel ringkas */
+        html += '<section><h2 class="sec">14 hari ke depan (otomatis)</h2><div class="tbl-wrap"><table class="data-table data-table-narrow"><thead><tr>' +
+          '<th>Tanggal</th><th>Hari</th><th>Kelompok</th><th>Anggota</th>' +
+          '</tr></thead><tbody>';
         for (var i = 0; i < 14; i++) {
           var tgl = shiftDate(hariIni, i);
           var jj = jadwalAktif(tgl);
-          html += '<div class="row-item"><div><p class="t">' + esc(fmtTanggal(tgl)) + '</p>' +
-            '<p class="s">' + (jj ? "Kelompok " + esc(jj.group.nama) + " · " + esc(namaAnggota(jj.group).map(function (a) { return a.nama; }).join(", ")) : "Belum ada kelompok") + '</p></div></div>';
+          html += '<tr' + (i === 0 ? ' class="row-today"' : "") + '><td class="nowrap"><strong>' + esc(fmtTanggal(tgl)) + '</strong></td>' +
+            '<td>' + esc(namaHari(hariKe(tgl))) + '</td>' +
+            '<td>' + (jj ? '<strong>Kelompok ' + esc(jj.group.nama) + '</strong>' : '<span style="color:var(--dim)">Belum ada kelompok</span>') + '</td>' +
+            '<td>' + (jj ? esc(namaAnggota(jj.group).map(function (a) { return a.nama; }).join(", ")) : "—") + '</td></tr>';
         }
-        html += '</div></section>';
-        /* Daftar kelompok */
-        html += '<section><h2 class="sec">Kelompok Tugas (' + state.groups.length + ')</h2><div class="list" style="margin-top:.75rem">';
-        if (state.groups.length === 0) html += '<p class="empty">Belum ada kelompok tugas — buat kelompok dulu di bawah.</p>';
-        state.groups.slice().sort(function (a, b) { return a.nama.localeCompare(b.nama, "id"); }).forEach(function (g) {
-          var aktif = g.aktif !== false;
-          var ang = namaAnggota(g);
-          html += '<div class="card" style="padding:.75rem 1rem"><div style="display:flex;justify-content:space-between;gap:.75rem;align-items:flex-start;flex-wrap:wrap"><div>' +
-            '<p class="t" style="font-size:.9375rem;font-weight:700;margin:0">Kelompok ' + esc(g.nama) + '</p>' +
-            '<p class="s">' + (ang.length ? esc(ang.map(function (a) { return a.nama + " (" + a.peran + ")"; }).join(", ")) : "Belum ada anggota") + '</p></div>' +
-            '<div style="display:flex;gap:.375rem;flex-wrap:wrap;justify-content:flex-end;align-items:center">' +
-            statusBadge(aktif ? "Aktif" : "Nonaktif") +
-            (kelola
-              ? '<button type="button" class="btn btn-ghost" data-act="jd-group-edit" data-id="' + g.id + '">Ubah</button>' +
-                '<button type="button" class="btn btn-danger-ghost" data-act="jd-group-toggle" data-id="' + g.id + '">' + (aktif ? "Nonaktifkan" : "Aktifkan") + '</button>'
-              : "") + '</div></div></div>';
-        });
-        html += '</div>' + (kelola ? '<p class="hint">Menonaktifkan kelompok membuat jadwalnya tidak berlaku sampai diaktifkan lagi — anggotanya tidak bisa mencatat selama itu.</p>' : "") + '</section>';
+        html += '</tbody></table></div></section>';
+        /* Daftar kelompok — kartu dalam grid */
+        html += '<section><h2 class="sec">Kelompok Tugas (' + state.groups.length + ')</h2>';
+        if (state.groups.length === 0) {
+          html += '<p class="empty">Belum ada kelompok tugas — buat kelompok dulu di bawah.</p>';
+        } else {
+          html += '<div class="kelompok-grid">';
+          state.groups.slice().sort(function (a, b) { return a.nama.localeCompare(b.nama, "id"); }).forEach(function (g) {
+            var aktif = g.aktif !== false;
+            var ang = namaAnggota(g);
+            html += '<div class="card" style="padding:.75rem 1rem"><div style="display:flex;justify-content:space-between;gap:.75rem;align-items:flex-start;flex-wrap:wrap"><div>' +
+              '<p class="t" style="font-size:.9375rem;font-weight:700;margin:0">Kelompok ' + esc(g.nama) + '</p>' +
+              '<p class="s">' + (ang.length ? esc(ang.map(function (a) { return a.nama + " (" + a.peran + ")"; }).join(", ")) : "Belum ada anggota") + '</p></div>' +
+              '<div style="display:flex;gap:.375rem;flex-wrap:wrap;justify-content:flex-end;align-items:center">' +
+              statusBadge(aktif ? "Aktif" : "Nonaktif") +
+              (kelola
+                ? '<button type="button" class="btn btn-ghost" data-act="jd-group-edit" data-id="' + g.id + '">Ubah</button>' +
+                  '<button type="button" class="btn btn-danger-ghost" data-act="jd-group-toggle" data-id="' + g.id + '">' + (aktif ? "Nonaktifkan" : "Aktifkan") + '</button>'
+                : "") + '</div></div></div>';
+          });
+          html += '</div>';
+        }
+        html += (kelola ? '<p class="hint">Menonaktifkan kelompok membuat jadwalnya tidak berlaku sampai diaktifkan lagi — anggotanya tidak bisa mencatat selama itu.</p>' : "") + '</section>';
         if (kelola) {
           /* Form kelompok — anggota dipilih dari Daftar Warga (Profil Warga). */
           var wrAktif = wargaAktif();
@@ -2675,7 +2723,7 @@
             return namaNormal(p.nama).indexOf(cariW) >= 0 || (hw && String(hw.nomor || "").toLowerCase().indexOf(cariW) >= 0);
           });
           var lainAktif = penggunaLainAktif();
-          html += '<form class="card" data-form="jd-group"><p style="margin:0 0 .75rem;font-weight:700">' + (ui.jdGroupEdit != null ? "Ubah kelompok" : "Tambah kelompok tugas") + '</p>' +
+          html += '<form class="card" data-form="jd-group"><p class="card-title">' + (ui.jdGroupEdit != null ? "Ubah kelompok" : "Tambah kelompok tugas") + '</p>' +
             fld("jd-nama", "Nama kelompok", "jdNama", ui.jdNama, "mis. A atau Tim Pagi") +
             '<div style="margin-top:.75rem"><p class="lbl">Anggota — pilih dari Daftar Warga</p>';
           if (wrAktif.length === 0) {
@@ -2717,7 +2765,7 @@
             '<p class="hint">Nama kelompok wajib dan tidak boleh sama dengan kelompok lain. Anggota harus punya akun login (Nama + PIN) — warga yang belum punya akun dibuatkan akun Petugas saat kelompok disimpan. Akun peran bawaan (tanpa nama) tidak bisa dijadwalkan.</p></form>';
           /* Form jadwal — HARI saja, tanpa tanggal/jam */
           var grupAktif = state.groups.filter(function (g) { return g.aktif !== false; });
-          html += '<form class="card" data-form="jd-sched"><p style="margin:0 0 .75rem;font-weight:700">' + (ui.jdSchedEdit != null ? "Ubah jadwal" : "Tetapkan jadwal keliling") + '</p><div class="grid2">' +
+          html += '<form class="card" data-form="jd-sched"><p class="card-title">' + (ui.jdSchedEdit != null ? "Ubah jadwal" : "Tetapkan jadwal keliling") + '</p><div class="grid2">' +
             '<div><label class="lbl" for="jd-hari">Hari</label><select id="jd-hari" class="inp" data-bind-sel="jdHari">' +
             URUTAN_HARI.map(function (h) { return '<option value="' + h + '"' + (Number(ui.jdHari) === h ? " selected" : "") + '>' + namaHari(h) + '</option>'; }).join("") + '</select></div>' +
             '<div><label class="lbl" for="jd-grup">Kelompok yang bertugas</label><select id="jd-grup" class="inp" data-bind-sel="jdGroup"><option value="">— Pilih kelompok —</option>' +
