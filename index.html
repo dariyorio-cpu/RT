@@ -813,6 +813,8 @@
       .data-table tbody tr:last-child td { border-bottom: 0; }
       .data-table td.num, .data-table th.num { text-align: right; font-variant-numeric: tabular-nums; }
       .data-table td.c, .data-table th.c { text-align: center; }
+      .data-table td.no, .access-table td.no { text-align: center; width: 2.75rem; min-width: 2.75rem; color: var(--dim); font-weight: 700; font-variant-numeric: tabular-nums; }
+      .data-table th.no, .access-table th.no { text-align: center; width: 2.75rem; min-width: 2.75rem; }
       .data-table td.nowrap, .data-table th.nowrap { white-space: nowrap; }
       .data-table td.cell-addr { max-width: 15rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .data-table td.cell-mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.75rem; }
@@ -2561,11 +2563,11 @@
             html += '<div class="actions-row" style="justify-content:flex-end"><button type="button" class="btn btn-primary" data-act="verify-all">Verifikasi semua (' + sheet.summary.menungguVerifikasi + ")</button></div>";
           }
           html += '<div class="tbl-wrap"><table class="data-table data-table-keliling"><thead><tr>' +
-            '<th>Rumah</th><th>Penghuni</th><th class="num">Nominal</th><th class="num">Jimpitan</th><th class="num">Kelebihan</th><th>Jam</th><th>Petugas</th><th>Status</th><th>Aksi</th>' +
+            '<th class="no">No.</th><th>Rumah</th><th>Penghuni</th><th class="num">Nominal</th><th class="num">Jimpitan</th><th class="num">Kelebihan</th><th>Jam</th><th>Petugas</th><th>Status</th><th>Aksi</th>' +
             '</tr></thead><tbody>';
-          sheet.rows.forEach(function (r) {
+          sheet.rows.forEach(function (r, ix) {
             var h = r.house, c = r.collection;
-            html += '<tr><td><strong>Rumah ' + esc(h.nomor) + '</strong>' +
+            html += '<tr><td class="no">' + (ix + 1) + '</td><td><strong>Rumah ' + esc(h.nomor) + '</strong>' +
               (h.blok ? '<br><span style="font-size:.75rem;color:var(--dim)">Blok ' + esc(h.blok) + '</span>' : "") +
               (h.status === "kosong" ? '<br>' + badge("gray", "Rumah kosong") : "") + '</td>' +
               '<td><strong>' + esc(h.namaPenghuni) + '</strong>' +
@@ -2600,7 +2602,7 @@
             }
             html += '</div></td></tr>';
             if (canWrite && cekJadwal.ok && ui.customFor === h.id) {
-              html += '<tr class="tbl-detail"><td colspan="9"><form class="inline-form" data-form="custom" data-house="' + h.id + '">' +
+              html += '<tr class="tbl-detail"><td colspan="10"><form class="inline-form" data-form="custom" data-house="' + h.id + '">' +
                 '<label class="lbl" for="nominal-' + h.id + '">Nominal setoran rumah ' + esc(h.nomor) + ' (Rp)</label>' +
                 '<div style="display:flex;flex-wrap:wrap;gap:.5rem;align-items:flex-end">' +
                 '<input id="nominal-' + h.id + '" type="number" inputmode="numeric" min="1" class="inp" style="flex:1;min-width:10rem" value="' +
@@ -2609,7 +2611,7 @@
                 '<button type="button" class="btn btn-ghost" data-act="custom-close">Tutup</button></div></form></td></tr>';
             }
             if (canWrite && c && ui.voidFor === c.id) {
-              html += '<tr class="tbl-detail"><td colspan="9"><form class="inline-form" data-form="void" data-id="' + c.id + '">' +
+              html += '<tr class="tbl-detail"><td colspan="10"><form class="inline-form" data-form="void" data-id="' + c.id + '">' +
                 '<label class="lbl" for="batal-' + c.id + '">Alasan membatalkan setoran rumah ' + esc(h.nomor) + '</label>' +
                 '<input id="batal-' + c.id + '" type="text" class="inp" placeholder="mis. salah catat nominal" value="' +
                 esc(ui.voidReason) + '" data-bind="voidReason">' +
@@ -2655,16 +2657,16 @@
         html += '</section>';
         /* Pola mingguan: satu kelompok per hari (Senin–Minggu), berulang — tabel premium */
         html += '<section><h2 class="sec">Jadwal mingguan (berulang)</h2><div class="tbl-wrap"><table class="data-table data-table-jadwal"><thead><tr>' +
-          '<th>Hari</th><th>Kelompok</th><th>Anggota</th><th>Ditetapkan oleh</th><th>Status</th><th>Aksi</th>' +
+          '<th class="no">No.</th><th>Hari</th><th>Kelompok</th><th>Anggota</th><th>Ditetapkan oleh</th><th>Status</th><th>Aksi</th>' +
           '</tr></thead><tbody>';
-        URUTAN_HARI.forEach(function (h) {
+        URUTAN_HARI.forEach(function (h, ix) {
           var sAktif = null, sBatal = null;
           (state.schedules || []).forEach(function (s) {
             if (s.hari === h) { if (s.status === "aktif") sAktif = s; else sBatal = s; }
           });
           var g = sAktif ? groupById(sAktif.groupId) : null;
           var isHariIni = h === hariKe(hariIni);
-          html += '<tr' + (isHariIni ? ' class="row-today"' : "") + '><td><strong>' + esc(namaHari(h)) + '</strong>' +
+          html += '<tr' + (isHariIni ? ' class="row-today"' : "") + '><td class="no">' + (ix + 1) + '</td><td><strong>' + esc(namaHari(h)) + '</strong>' +
             (isHariIni ? ' <span class="badge badge-green">hari ini</span>' : "") + '</td>' +
             '<td>' + (g ? '<strong>Kelompok ' + esc(g.nama) + '</strong>' : '<span style="color:var(--dim)">Belum ditetapkan</span>') + '</td>' +
             '<td>' + (g ? esc(namaAnggota(g).map(function (a) { return a.nama; }).join(", ")) : "—") + '</td>' +
@@ -2680,12 +2682,12 @@
         html += '</tbody></table></div></section>';
         /* 14 hari ke depan — diturunkan otomatis dari pola mingguan, tabel ringkas */
         html += '<section><h2 class="sec">14 hari ke depan (otomatis)</h2><div class="tbl-wrap"><table class="data-table data-table-narrow"><thead><tr>' +
-          '<th>Tanggal</th><th>Hari</th><th>Kelompok</th><th>Anggota</th>' +
+          '<th class="no">No.</th><th>Tanggal</th><th>Hari</th><th>Kelompok</th><th>Anggota</th>' +
           '</tr></thead><tbody>';
         for (var i = 0; i < 14; i++) {
           var tgl = shiftDate(hariIni, i);
           var jj = jadwalAktif(tgl);
-          html += '<tr' + (i === 0 ? ' class="row-today"' : "") + '><td class="nowrap"><strong>' + esc(fmtTanggal(tgl)) + '</strong></td>' +
+          html += '<tr' + (i === 0 ? ' class="row-today"' : "") + '><td class="no">' + (i + 1) + '</td><td class="nowrap"><strong>' + esc(fmtTanggal(tgl)) + '</strong></td>' +
             '<td>' + esc(namaHari(hariKe(tgl))) + '</td>' +
             '<td>' + (jj ? '<strong>Kelompok ' + esc(jj.group.nama) + '</strong>' : '<span style="color:var(--dim)">Belum ada kelompok</span>') + '</td>' +
             '<td>' + (jj ? esc(namaAnggota(jj.group).map(function (a) { return a.nama; }).join(", ")) : "—") + '</td></tr>';
@@ -2864,11 +2866,11 @@
           var rNonaktif = filtered.filter(function (h) { return h.status === "nonaktif"; }).length;
           html += '<p class="sub" style="margin-top:.25rem">Menampilkan ' + filtered.length + ' rumah \u00b7 ' + rAktif + ' aktif \u00b7 ' + rKosong + ' kosong \u00b7 ' + rNonaktif + ' nonaktif</p>';
           html += '<div class="tbl-wrap" style="margin-top:.5rem"><table class="data-table"><thead><tr>' +
-            '<th>No. Rumah</th><th>Kepala Keluarga</th><th>Blok</th><th>Alamat</th><th>RT/RW</th><th class="num">Jiwa</th><th class="num">KK</th><th>HP/WA</th><th>Status Hunian</th><th>Status</th><th>Terdaftar</th><th>Aksi</th>' +
+            '<th class="no">No.</th><th>No. Rumah</th><th>Kepala Keluarga</th><th>Blok</th><th>Alamat</th><th>RT/RW</th><th class="num">Jiwa</th><th class="num">KK</th><th>HP/WA</th><th>Status Hunian</th><th>Status</th><th>Terdaftar</th><th>Aksi</th>' +
             '</tr></thead><tbody>';
-          filtered.forEach(function (h) {
+          filtered.forEach(function (h, ix) {
             var rtrw = ((h.rt ? "RT " + h.rt : "") + (h.rt && h.rw ? " / " : "") + (h.rw ? "RW " + h.rw : "")) || "-";
-            html += '<tr><td class="nowrap"><strong>Rumah ' + esc(h.nomor) + '</strong></td>' +
+            html += '<tr><td class="no">' + (ix + 1) + '</td><td class="nowrap"><strong>Rumah ' + esc(h.nomor) + '</strong></td>' +
               '<td><strong>' + esc(h.namaPenghuni) + '</strong></td>' +
               '<td>' + esc(h.blok || "-") + '</td>' +
               '<td class="cell-addr" title="' + esc(h.alamat || "") + '">' + esc(h.alamat || "-") + '</td>' +
@@ -2886,7 +2888,7 @@
               (canWrite ? '<button type="button" class="btn btn-danger-ghost" data-act="house-hapus-open" data-id="' + h.id + '">Hapus</button>' : "") +
               '</div></td></tr>';
             if (h.catatan) {
-              html += '<tr class="tbl-detail"><td colspan="12"><span class="tbl-detail-label">Catatan:</span> ' + esc(h.catatan) + '</td></tr>';
+              html += '<tr class="tbl-detail"><td colspan="13"><span class="tbl-detail-label">Catatan:</span> ' + esc(h.catatan) + '</td></tr>';
             }
           });
           html += '</tbody></table></div>';
@@ -3295,13 +3297,13 @@
             var pfMeninggal = plist.filter(function (p) { return (p.statusTinggal || "aktif") === "meninggal"; }).length;
             html += '<p class="sub" style="margin-top:.75rem">Menampilkan ' + plist.length + ' jiwa \u00b7 ' + pfAktif + ' aktif \u00b7 ' + pfPindah + ' pindah \u00b7 ' + pfMeninggal + ' meninggal</p>';
             html += '<div class="tbl-wrap" style="margin-top:.5rem"><table class="data-table data-table-profil"><thead><tr>' +
-              '<th>Nama</th><th>NIK</th><th>No KK</th><th>Hubungan</th><th>Rumah</th><th>Pekerjaan</th><th>Pendidikan</th><th class="c">Gol. Darah</th><th>Tgl Lahir</th><th>Agama</th><th>Status Kawin</th><th>HP/WA</th><th>Status</th><th>Aksi</th>' +
+              '<th class="no">No.</th><th>Nama</th><th>NIK</th><th>No KK</th><th>Hubungan</th><th>Rumah</th><th>Pekerjaan</th><th>Pendidikan</th><th class="c">Gol. Darah</th><th>Tgl Lahir</th><th>Agama</th><th>Status Kawin</th><th>HP/WA</th><th>Status</th><th>Aksi</th>' +
               '</tr></thead><tbody>';
-            plist.forEach(function (p) {
+            plist.forEach(function (p, ix) {
               var h = p.houseId ? houseById(p.houseId) : null;
               var umur = umurDari(p.tanggalLahir);
               var st = p.statusTinggal || "aktif";
-              html += '<tr><td><strong>' + esc(p.nama) + '</strong></td>' +
+              html += '<tr><td class="no">' + (ix + 1) + '</td><td><strong>' + esc(p.nama) + '</strong></td>' +
                 '<td class="cell-mono nowrap">' + esc(p.nik || "-") + '</td>' +
                 '<td class="cell-mono nowrap">' + esc(p.noKK || "-") + '</td>' +
                 '<td>' + esc(p.hubungan || "-") + '</td>' +
@@ -3319,7 +3321,7 @@
                 (isSuper() ? '<button type="button" class="btn btn-danger-ghost" data-act="pf-hapus-open" data-id="' + p.id + '">Hapus</button>' : "") +
                 '</div></td></tr>';
               if (p.riwayat && p.riwayat.length) {
-                html += '<tr class="tbl-detail"><td colspan="14">' + p.riwayat.slice().reverse().map(function (r) {
+                html += '<tr class="tbl-detail"><td colspan="15">' + p.riwayat.slice().reverse().map(function (r) {
                   return '<p class="s" style="margin:0">Riwayat: <b>' + esc(r.status) + "</b> \u00b7 " + esc(fmtSingkat(r.tanggal)) +
                     (r.alasan ? " \u00b7 " + esc(r.alasan) : "") + (r.oleh ? " \u00b7 dicatat " + esc(r.oleh) : "") + "</p>";
                 }).join("") + '</td></tr>';
@@ -3887,7 +3889,7 @@
         html += "<section><h2 class=\"sec\">Super Admin — Kendali Penuh Sistem</h2>" +
           '<p class="sub">Super Admin mengelola semua yang bisa dilakukan Petugas, Bendahara, dan Admin, ditambah Users, pengaturan RT, PIN semua peran, audit log, cadangan data, dan deploy. Hak akses tiap peran:</p>' +
           '<div class="card" style="margin-top:.75rem;overflow-x:auto"><table class="access-table"><thead><tr>' +
-          "<th>Kemampuan</th><th class=\"c\">Warga</th><th class=\"c\">Petugas</th><th class=\"c\">Bendahara</th><th class=\"c\">Admin</th><th class=\"c\">Super Admin</th></tr></thead><tbody>" +
+          "<th class=\"no\">No.</th><th>Kemampuan</th><th class=\"c\">Warga</th><th class=\"c\">Petugas</th><th class=\"c\">Bendahara</th><th class=\"c\">Admin</th><th class=\"c\">Super Admin</th></tr></thead><tbody>" +
           [
             ["Melihat beranda, transparansi kas, pengumuman, agenda, UMKM", "✓", "✓", "✓", "✓", "✓"],
             ["Mengajukan surat & pengaduan atas nama sendiri", "✓", "✓", "✓", "✓", "✓"],
@@ -3897,8 +3899,8 @@
             ["Mengelola Users (tambah pengguna & PIN pengguna)", "—", "—", "—", "—", "✓"],
             ["Pengaturan RT, ganti PIN semua peran, audit log", "—", "—", "—", "—", "✓"],
             ["Impor cadangan (menimpa data) & deploy", "—", "—", "—", "—", "✓"]
-          ].map(function (r) {
-            return "<tr><td>" + r[0] + '</td><td class="c">' + r[1] + '</td><td class="c">' + r[2] + '</td><td class="c">' + r[3] + '</td><td class="c">' + r[4] + '</td><td class="c">' + r[5] + "</td></tr>";
+          ].map(function (r, i) {
+            return "<tr><td class=\"no\">" + (i + 1) + "</td><td>" + r[0] + '</td><td class="c">' + r[1] + '</td><td class="c">' + r[2] + '</td><td class="c">' + r[3] + '</td><td class="c">' + r[4] + '</td><td class="c">' + r[5] + "</td></tr>";
           }).join("") +
           "</tbody></table></div></section>";
         html += '<section><div class="stats">' +
